@@ -20,7 +20,7 @@ type smppConn struct {
 }
 
 // Connect to server
-func (smpp *smppConn) connect(host string, port int, username, password string) (err os.Error) {
+func (smpp *smppConn) connect(host string, port int) (err os.Error) {
 	// Create TCP connection
 	smpp.conn, err = net.Dial("tcp", "", host + ":" + strconv.Itoa(port))
 	if err != nil {
@@ -39,14 +39,16 @@ func (smpp *smppConn) close() (err os.Error) {
 }
 
 // Create a new Transmitter
-func NewTransmitter(host string, port int, username, password string) (tx *Transmitter, err os.Error) {
+func NewTransmitter(host string, port int, params ...interface{}) (tx *Transmitter, err os.Error) {
 	// Create new transmitter
 	tx = new(Transmitter)
 	// Connect to server
-	err = tx.connect(host, port, username, password)
+	err = tx.connect(host, port)
 	if err != nil {
 		return nil, err
 	}
+	// Bind with server
+	err = tx.bind(params)
 	return
 }
 
@@ -55,7 +57,7 @@ func NewReceiver(host string, port int, username, password string) (rx *Receiver
 	// Create new receiver
 	rx = new(Receiver)
 	// Connect to server
-	err = rx.connect(host, port, username, password)
+	err = rx.connect(host, port)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +69,7 @@ func NewTransceiver(host string, port int, username, password string) (trx *Tran
 	// Create new transceiver
 	trx = new(Transceiver)
 	// Connect to server
-	err = trx.connect(host, port, username, password)
+	err = trx.connect(host, port)
 	if err != nil {
 		return nil, err
 	}
