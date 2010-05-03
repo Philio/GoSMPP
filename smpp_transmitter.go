@@ -11,13 +11,14 @@ import (
 // Transmitter type
 type Transmitter struct {
 	smppConn
+	bound		bool
 	sequence	uint32
 }
 
 // Bind transmitter
 func (tx *Transmitter) bind(params []interface{}) (err os.Error) {
 	// Sequence number starts at 1
-	tx.sequence = 1
+	tx.sequence ++
 	// Create bind PDU
 	pdu := new(pduBindTransmitter)
 	// PDU header
@@ -65,8 +66,6 @@ func (tx *Transmitter) bind(params []interface{}) (err os.Error) {
 	if err != nil {
 		return
 	}
-	// Get response
-	err = tx.bindResp()
 	return
 }
 
@@ -74,6 +73,24 @@ func (tx *Transmitter) bind(params []interface{}) (err os.Error) {
 func (tx *Transmitter) bindResp() (err os.Error) {
 	// Create bind response PDU
 	pdu := new(pduBindTransmitterResp)
+	// Read PDU data
 	err = pdu.read(tx.reader)
+	if err != nil {
+		return
+	}
+	// Validate PDU data
+	if pdu.header.cmdId != CMD_BIND_TRANSMITTER_RESP {
+		err = os.NewError("Bind Transmitter Response: Invalid command")
+		return
+	}
+	if pdu.header.cmdStatus != STATUS_ESME_ROK {
+		err = os.NewError("Bind Transmitter Response: Error received from SMSC")
+		return
+	}
+	if pdu.header.sequence != tx.sequence {
+		err = os.NewError("Bind Transmitter Response: Invalid sequence number")
+		return
+	}
+	tx.bound = true
 	return
 }

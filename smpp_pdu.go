@@ -7,7 +7,6 @@ package smpp
 import (
 	"os"
 	"bufio"
-	"fmt"
 )
 
 // PDU header
@@ -52,6 +51,42 @@ func (hdr *pduHeader) write(w *bufio.Writer) (err os.Error) {
 	return
 }
 
+// Optional paramater
+type pduOptParam struct {
+	tag		uint16
+	length		uint16
+	value		interface{}
+}
+
+// Read optional param
+func (op *pduOptParam) read(r *bufio.Reader) (err os.Error) {
+	// Read first 4 descripter bytes
+	p := make([]byte, 4)
+	_, err = r.Read(p)
+	if err != nil {
+		return
+	}
+	op.tag    = uint16(unpackUint(p[0:2]))
+	op.length = uint16(unpackUint(p[2:4]))
+	// Read value data
+	vp := make([]byte, op.length)
+	_, err = r.Read(vp)
+	if err != nil {
+		return
+	}
+	// Determine data type of value
+	switch op.tag {
+		case TAG_SC_INTERFACE_VERSION:
+			op.value = vp[0]
+	}
+	return
+}
+
+// Write optional param
+func (op *pduOptParam) write(w *bufio.Writer) (err os.Error) {
+	return
+}
+
 // Bind Transmitter PDU
 type pduBindTransmitter struct {
 	header		*pduHeader
@@ -65,6 +100,7 @@ type pduBindTransmitter struct {
 }
 
 // Read Bind Transmitter PDU
+// @todo used for server
 func (pdu *pduBindTransmitter) read(r *bufio.Reader) (err os.Error) {
 	return
 }
@@ -74,6 +110,7 @@ func (pdu *pduBindTransmitter) write(w *bufio.Writer) (err os.Error) {
 	// Write header
 	err = pdu.header.write(w)
 	if err != nil {
+		err = os.NewError("Bind Transmitter: Error writing header")
 		return
 	}
 	// Create byte array the size of the PDU
@@ -114,10 +151,14 @@ func (pdu *pduBindTransmitter) write(w *bufio.Writer) (err os.Error) {
 	// Write to buffer
 	_, err = w.Write(p)
 	if err != nil {
+		err = os.NewError("Bind Transmitter: Error writing to buffer")
 		return
 	}
 	// Flush write buffer
 	err = w.Flush()
+	if err != nil {
+		err = os.NewError("Bind Transmitter: Error flushing write buffer")
+	}
 	return
 }
 
@@ -134,16 +175,35 @@ func (pdu *pduBindTransmitterResp) read(r *bufio.Reader) (err os.Error) {
 	pdu.header = new(pduHeader)
 	err = pdu.header.read(r)
 	if err != nil {
+		err = os.NewError("Bind Transmitter Response: Error reading header")
 		return
 	}
-	fmt.Printf("Response header: %#v\n", pdu.header)
-	p := make([]byte, pdu.header.cmdLength - 16)
-	r.Read(p)
-	fmt.Printf("Response body: %#v\n", p)
+	// Read system id (null terminated string or null)
+	line, err := r.ReadBytes(0x00)
+	if err != nil {
+		err = os.NewError("Bind Transmitter Response: Error reading SMSC system id")
+		return
+	}
+	if len(line) > 1 {
+		pdu.systemId = string(line[0:len(line) - 1])
+	}
+	// Read optional param
+	if pdu.header.cmdLength > 16 + uint32(len(pdu.systemId)) + 1 {
+		op := new(pduOptParam)
+		err = op.read(r)
+		if err != nil {
+			err = os.NewError("Bind Transmitter Response: Error reading optional param")
+			return
+		}
+		if op.tag == TAG_SC_INTERFACE_VERSION {
+			pdu.ifVersion = op.value.(uint8)
+		}
+	}
 	return
 }
 
 // Write Bind Transmitter Response PDU
+// @todo used for server
 func (pdu *pduBindTransmitterResp) write(w *bufio.Writer) (err os.Error) {
 	return
 }
@@ -358,13 +418,6 @@ type pduDeliverSMResp struct {
 	messageId	string
 }
 
-// Optional paramater
-type pduOptParam struct {
-	tag		uint16
-	length		uint16
-	value		interface{}
-}
-
 // Destination address
 type pduDestAddr struct {
 	destFlag	uint8
@@ -407,27 +460,5 @@ func packUint(n uint64, l uint8) (p []byte) {
 	for i := uint8(0); i < l; i ++ {
 		p[i] = byte(n >> ((l - i - 1) * 8))
 	}
-	return
-}
-
-// Read an unsigned int of l bytes length
-func readUint(r *bufio.Reader, l uint8) (n uint64, err os.Error) {
-	// Read bytes
-	p := make([]byte, l)
-	_, err = r.Read(p)
-	if err != nil {
-		return 0, err
-	}
-	// Unpack bytes
-	n = unpackUint(p)
-	return
-}
-
-// Write an unsigned int of l bytes length
-func writeUint(w *bufio.Writer, n uint64, l uint8) (err os.Error) {
-	// Pack n into bytes
-	p := packUint(n, l)
-	// Write bytes
-	_, err = w.Write(p)
 	return
 }

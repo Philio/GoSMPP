@@ -17,6 +17,7 @@ type smppConn struct {
 	conn		net.Conn
 	reader		*bufio.Reader
 	writer		*bufio.Writer
+	connected	bool
 }
 
 // Connect to server
@@ -26,6 +27,7 @@ func (smpp *smppConn) connect(host string, port int) (err os.Error) {
 	if err != nil {
 		return
 	}
+	smpp.connected = true
 	// Setup buffered reader/writer
 	smpp.reader = bufio.NewReader(smpp.conn)
 	smpp.writer = bufio.NewWriter(smpp.conn)
@@ -35,6 +37,7 @@ func (smpp *smppConn) connect(host string, port int) (err os.Error) {
 // Close connection
 func (smpp *smppConn) close() (err os.Error) {
 	err = smpp.conn.Close()
+	smpp.connected = false	
 	return
 }
 
@@ -49,6 +52,11 @@ func NewTransmitter(host string, port int, params ...interface{}) (tx *Transmitt
 	}
 	// Bind with server
 	err = tx.bind(params)
+	if err != nil {
+		return nil, err
+	}
+	// Get bind response
+	err = tx.bindResp()
 	return
 }
 
