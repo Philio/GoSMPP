@@ -120,6 +120,11 @@ func (smpp *smpp) bind(cmd, rcmd SMPPCommand, params []interface{}) (err os.Erro
 
 // Send unbind request
 func (smpp *smpp) Unbind() (err os.Error) {
+	// Check connected and bound
+	if !smpp.connected || !smpp.bound {
+		err = os.NewError("Unbind: A bound connection is required to unbind")
+		return
+	}
 	// Increment sequence number
 	smpp.sequence ++
 	// Create bind PDU
