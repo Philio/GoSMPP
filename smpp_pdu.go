@@ -87,8 +87,8 @@ func (op *pduOptParam) write(w *bufio.Writer) (err os.Error) {
 	return
 }
 
-// Bind Transmitter PDU
-type pduBindTransmitter struct {
+// Bind PDU
+type pduBind struct {
 	header		*pduHeader
 	systemId	string
 	password	string
@@ -99,18 +99,18 @@ type pduBindTransmitter struct {
 	addressRange	string
 }
 
-// Read Bind Transmitter PDU
+// Read Bind PDU
 // @todo used for server
-func (pdu *pduBindTransmitter) read(r *bufio.Reader) (err os.Error) {
+func (pdu *pduBind) read(r *bufio.Reader) (err os.Error) {
 	return
 }
 
-// Write Bind Transmitter PDU
-func (pdu *pduBindTransmitter) write(w *bufio.Writer) (err os.Error) {
+// Write Bind PDU
+func (pdu *pduBind) write(w *bufio.Writer) (err os.Error) {
 	// Write header
 	err = pdu.header.write(w)
 	if err != nil {
-		err = os.NewError("Bind Transmitter: Error writing header")
+		err = os.NewError("Bind: Error writing header")
 		return
 	}
 	// Create byte array the size of the PDU
@@ -151,37 +151,37 @@ func (pdu *pduBindTransmitter) write(w *bufio.Writer) (err os.Error) {
 	// Write to buffer
 	_, err = w.Write(p)
 	if err != nil {
-		err = os.NewError("Bind Transmitter: Error writing to buffer")
+		err = os.NewError("Bind: Error writing to buffer")
 		return
 	}
 	// Flush write buffer
 	err = w.Flush()
 	if err != nil {
-		err = os.NewError("Bind Transmitter: Error flushing write buffer")
+		err = os.NewError("Bind: Error flushing write buffer")
 	}
 	return
 }
 
-// Bind Transmitter Response PDU
-type pduBindTransmitterResp struct {
+// Bind Response PDU
+type pduBindResp struct {
 	header		*pduHeader
 	systemId	string
 	ifVersion	uint8		// Optional
 }
 
-// Read Bind Transmitter Response PDU
-func (pdu *pduBindTransmitterResp) read(r *bufio.Reader) (err os.Error) {
+// Read Bind Response PDU
+func (pdu *pduBindResp) read(r *bufio.Reader) (err os.Error) {
 	// Read header
 	pdu.header = new(pduHeader)
 	err = pdu.header.read(r)
 	if err != nil {
-		err = os.NewError("Bind Transmitter Response: Error reading header")
+		err = os.NewError("Bind Response: Error reading header")
 		return
 	}
 	// Read system id (null terminated string or null)
 	line, err := r.ReadBytes(0x00)
 	if err != nil {
-		err = os.NewError("Bind Transmitter Response: Error reading SMSC system id")
+		err = os.NewError("Bind Response: Error reading SMSC system id")
 		return
 	}
 	if len(line) > 1 {
@@ -192,7 +192,7 @@ func (pdu *pduBindTransmitterResp) read(r *bufio.Reader) (err os.Error) {
 		op := new(pduOptParam)
 		err = op.read(r)
 		if err != nil {
-			err = os.NewError("Bind Transmitter Response: Error reading optional param")
+			err = os.NewError("Bind Response: Error reading optional param")
 			return
 		}
 		if op.tag == TAG_SC_INTERFACE_VERSION {
@@ -202,48 +202,10 @@ func (pdu *pduBindTransmitterResp) read(r *bufio.Reader) (err os.Error) {
 	return
 }
 
-// Write Bind Transmitter Response PDU
+// Write Bind Response PDU
 // @todo used for server
-func (pdu *pduBindTransmitterResp) write(w *bufio.Writer) (err os.Error) {
+func (pdu *pduBindResp) write(w *bufio.Writer) (err os.Error) {
 	return
-}
-
-// Bind Receiver PDU
-type pduBindReceiver struct {
-	header		*pduHeader
-	systemId	string
-	password	string
-	systemType	string
-	ifVersion	uint8
-	addrTon		uint8
-	addrNpi		uint8
-	addressRange	string
-}
-
-// Bind Receiver Response PDU
-type pduBindReceiverResp struct {
-	header		*pduHeader
-	systemId	string
-	ifVersion	uint8		// Optional
-}
-
-// Bind Transceiver PDU
-type pduBindTransceiver struct{
-	header		*pduHeader
-	systemId	string
-	password	string
-	systemType	string
-	ifVersion	uint8
-	addrTon		uint8
-	addrNpi		uint8
-	addressRange	string
-}
-
-// Bind Transceiver Response PDU
-type pduBindTransceiverResp struct {
-	header		*pduHeader
-	systemId	string
-	ifVersion	uint8		// Optional
 }
 
 // Unbind PDU
@@ -251,9 +213,51 @@ type pduUnbind struct {
 	header		*pduHeader
 }
 
+// Read Unbind PDU
+func (pdu *pduUnbind) read(r *bufio.Reader) (err os.Error) {
+	// Read header
+	pdu.header = new(pduHeader)
+	err = pdu.header.read(r)
+	if err != nil {
+		err = os.NewError("Unbind: Error reading header")
+	}
+	return
+}
+
+// Write Unbind PDU
+func (pdu *pduUnbind) write(w *bufio.Writer) (err os.Error) {
+	// Write header
+	err = pdu.header.write(w)
+	if err != nil {
+		err = os.NewError("Unbind: Error writing header")
+	}
+	return
+}
+
 // Unbind Response PDU
 type pduUnbindResp struct {
 	header		*pduHeader
+}
+
+// Read Unbind Response PDU
+func (pdu *pduUnbindResp) read(r *bufio.Reader) (err os.Error) {
+	// Read header
+	pdu.header = new(pduHeader)
+	err = pdu.header.read(r)
+	if err != nil {
+		err = os.NewError("Unbind Response: Error reading header")
+	}
+	return
+}
+
+// Write Unbind Response PDU
+func (pdu *pduUnbindResp) write(w *bufio.Writer) (err os.Error) {
+	// Write header
+	err = pdu.header.write(w)
+	if err != nil {
+		err = os.NewError("Unbind: Error writing header")
+	}
+	return
 }
 
 // Generic Nack PDU

@@ -6,5 +6,5 @@ package smpp
 
 // Receiver type
 type Receiver struct {
-	smppConn
+	smpp
 }
