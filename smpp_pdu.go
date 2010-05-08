@@ -7,6 +7,7 @@ package smpp
 import (
 	"os"
 	"bufio"
+	"reflect"
 )
 
 // PDU header
@@ -84,6 +85,37 @@ func (op *pduOptParam) read(r *bufio.Reader) (err os.Error) {
 
 // Write optional param
 func (op *pduOptParam) write(w *bufio.Writer) (err os.Error) {
+	// Create byte array
+	p := make([]byte, 4 + op.length)
+	copy(p[0:2], packUint(uint64(op.tag), 2))
+	copy(p[2:4], packUint(uint64(op.length), 2))
+	// Determine data type of value
+	v := reflect.NewValue(op.value)
+	switch t := v.(type) {
+		case *reflect.StringValue:
+			copy(p[4:op.length], []byte(op.value.(string)))
+		case *reflect.BoolValue:
+			if op.value.(bool) {
+				p[4] = byte(1)
+			} else {
+				p[4] = byte(0)
+			}
+		case *reflect.Uint8Value:
+			p[4] = byte(op.value.(uint8))
+		case *reflect.Uint16Value:
+			copy(p[4:6], packUint(uint64(op.value.(uint16)), 2))
+		case *reflect.Uint32Value:
+			copy(p[4:8], packUint(uint64(op.value.(uint32)), 4))
+		case *reflect.Uint64Value:
+			copy(p[4:12], packUint(uint64(op.value.(uint64)), 8))
+	}
+	// Write to buffer
+	_, err = w.Write(p)
+	if err != nil {
+		return
+	}
+	// Flush write buffer
+	err = w.Flush()
 	return
 }
 
@@ -166,7 +198,7 @@ func (pdu *pduBind) write(w *bufio.Writer) (err os.Error) {
 type pduBindResp struct {
 	header		*pduHeader
 	systemId	string
-	ifVersion	uint8		// Optional
+	optional	OptParams
 }
 
 // Read Bind Response PDU
@@ -195,9 +227,7 @@ func (pdu *pduBindResp) read(r *bufio.Reader) (err os.Error) {
 			err = os.NewError("Bind Response: Error reading optional param")
 			return
 		}
-		if op.tag == TAG_SC_INTERFACE_VERSION {
-			pdu.ifVersion = op.value.(uint8)
-		}
+		pdu.optional = OptParams{SMPPOptionalParamTag(op.tag): op.value}
 	}
 	return
 }
@@ -255,7 +285,7 @@ func (pdu *pduUnbindResp) write(w *bufio.Writer) (err os.Error) {
 	// Write header
 	err = pdu.header.write(w)
 	if err != nil {
-		err = os.NewError("Unbind: Error writing header")
+		err = os.NewError("Unbind Response: Error writing header")
 	}
 	return
 }
@@ -269,57 +299,184 @@ type pduGenericNack struct {
 type pduSubmitSM struct {
 	header		*pduHeader
 	serviceType	string
-	sourceAddrTon	uint8
-	sourceAddrNpi	uint8
+	sourceAddrTon	SMPPTypeOfNumber
+	sourceAddrNpi	SMPPNumericPlanIndicator
 	sourceAddr	string
-	destAddrTon	uint8
-	destAddrNpi	uint8
+	destAddrTon	SMPPTypeOfNumber
+	destAddrNpi	SMPPNumericPlanIndicator
 	destAddr	string
-	esmClass	uint8
+	esmClass	SMPPEsmClassESME
 	protocolId	uint8
-	priorityFlag	uint8
+	priorityFlag	SMPPPriority
 	schedDelTime	string
 	validityPeriod	string
-	regDelivery	uint8
+	regDelivery	SMPPDelivery
 	replaceFlag	uint8
-	dataCoding	uint8
+	dataCoding	SMPPDataCoding
 	smDefaultMsgId	uint8
 	smLength	uint8
 	shortMessage	string
-	userMsgRef	*pduOptParam	// Optional
-	sourcePort	*pduOptParam	// Optional
-	sourceAddrSub	*pduOptParam	// Optional
-	destPort	*pduOptParam	// Optional
-	destAddrSub	*pduOptParam	// Optional
-	sarMsgRef	*pduOptParam	// Optional
-	sarTotalSegs	*pduOptParam	// Optional
-	sarSegSeqnum	*pduOptParam	// Optional
-	moreMsgsToSend	*pduOptParam	// Optional
-	payloadType	*pduOptParam	// Optional
-	msgPayload	*pduOptParam	// Optional
-	privacyInd	*pduOptParam	// Optional
-	callbkNum	*pduOptParam	// Optional
-	callbkNumPreInd	*pduOptParam	// Optional
-	callbkNumAtag	*pduOptParam	// Optional
-	sourceSubaddr	*pduOptParam	// Optional
-	destSubaddr	*pduOptParam	// Optional
-	userResCode	*pduOptParam	// Optional
-	displayTime	*pduOptParam	// Optional
-	smsSignal	*pduOptParam	// Optional
-	msValidity	*pduOptParam	// Optional
-	msMsgWaitFac	*pduOptParam	// Optional
-	numOfMsgs	*pduOptParam	// Optional
-	alertOnMsgDel	*pduOptParam	// Optional
-	langInd		*pduOptParam	// Optional
-	itsReplyType	*pduOptParam	// Optional
-	itsSessInfo	*pduOptParam	// Optional
-	ussdServiceOp	*pduOptParam	// Optional
+	optional	OptParams
+	optionalLen	uint32
 }
 
-// Submit SM Response PDU
+// Read SubmitSM PDU
+func (pdu *pduSubmitSM) read(r *bufio.Reader) (err os.Error) {
+	return
+}
+
+// Write SubmitSM PDU
+func (pdu *pduSubmitSM) write(w *bufio.Writer) (err os.Error) {
+	// Write header
+	err = pdu.header.write(w)
+	if err != nil {
+		err = os.NewError("SubmitSM: Error writing header")
+		return
+	}
+	// Create byte array the size of the PDU
+	p := make([]byte, pdu.header.cmdLength - 16 - pdu.optionalLen)
+	pos := 0
+	// Copy service type
+	if len(pdu.serviceType) > 0 {
+		copy(p[pos:len(pdu.serviceType)], []byte(pdu.serviceType))
+		pos += len(pdu.serviceType)
+	}
+	pos ++ // Null terminator
+	// Source TON
+	p[pos] = byte(pdu.sourceAddrTon)
+	pos ++
+	// Source NPI
+	p[pos] = byte(pdu.sourceAddrNpi)
+	pos ++
+	// Source Address
+	if len(pdu.sourceAddr) > 0 {
+		copy(p[pos:pos + len(pdu.sourceAddr)], []byte(pdu.sourceAddr))
+		pos += len(pdu.sourceAddr)
+	}
+	pos ++ // Null terminator
+	// Destination TON
+	p[pos] = byte(pdu.destAddrTon)
+	pos ++
+	// Destination NPI
+	p[pos] = byte(pdu.destAddrNpi)
+	pos ++
+	// Destination Address
+	if len(pdu.destAddr) > 0 {
+		copy(p[pos:pos + len(pdu.destAddr)], []byte(pdu.destAddr))
+		pos += len(pdu.destAddr)
+	}
+	pos ++ // Null terminator
+	// ESM Class
+	p[pos] = byte(pdu.esmClass)
+	pos ++
+	// Protocol Id
+	p[pos] = byte(pdu.protocolId)
+	pos ++
+	// Priority Flag
+	p[pos] = byte(pdu.priorityFlag)
+	pos ++
+	// Sheduled Delivery Time
+	if len(pdu.schedDelTime) > 0 {
+		copy(p[pos:pos + len(pdu.schedDelTime)], []byte(pdu.schedDelTime))
+		pos += len(pdu.schedDelTime)
+	}
+	pos ++ // Null terminator
+	// Validity Period
+	if len(pdu.validityPeriod) > 0 {
+		copy(p[pos:pos + len(pdu.validityPeriod)], []byte(pdu.validityPeriod))
+		pos += len(pdu.validityPeriod)
+	}
+	pos ++ // Null terminator
+	// Registered Delivery
+	p[pos] = byte(pdu.regDelivery)
+	pos ++
+	// Replace Flag
+	p[pos] = byte(pdu.replaceFlag)
+	pos ++
+	// Data Coding
+	p[pos] = byte(pdu.dataCoding)
+	pos ++
+	// Default Msg Id
+	p[pos] = byte(pdu.smDefaultMsgId)
+	pos ++
+	// Msg Length
+	p[pos] = byte(pdu.smLength)
+	pos ++
+	// Message
+	if len(pdu.shortMessage) > 0 {
+		copy(p[pos:pos + len(pdu.shortMessage)], []byte(pdu.shortMessage))
+		pos += len(pdu.shortMessage)
+	}
+	// Write to buffer
+	_, err = w.Write(p)
+	if err != nil {
+		err = os.NewError("SubmitSM: Error writing to buffer")
+		return
+	}
+	// Flush write buffer
+	err = w.Flush()
+	if err != nil {
+		err = os.NewError("SubmitSM: Error flushing write buffer")
+		return
+	}
+	// Optional params
+	if len(pdu.optional) > 0 {
+		for key, val := range pdu.optional {
+			op := new(pduOptParam)
+			op.tag = uint16(key)
+			op.value = val
+			v := reflect.NewValue(val)
+			switch t := v.(type) {
+				case *reflect.StringValue:
+					op.length = uint16(len(val.(string)))
+				case *reflect.BoolValue:
+					op.length = 1
+				case *reflect.Uint8Value:
+					op.length = 1
+				case *reflect.Uint16Value:
+					op.length = 2
+				case *reflect.Uint32Value:
+					op.length = 4
+				case *reflect.Uint64Value:
+					op.length = 8
+			}
+			err = op.write(w)
+			if err != nil {
+				return
+			}
+		}
+	}
+	return
+}
+
+// SubmitSM Response PDU
 type pduSubmitSMResp struct {
 	header		*pduHeader
 	messageId	string
+}
+
+// Read SubmitSM Response PDU
+func (pdu *pduSubmitSMResp) read(r *bufio.Reader) (err os.Error) {
+	// Read header
+	pdu.header = new(pduHeader)
+	err = pdu.header.read(r)
+	if err != nil {
+		err = os.NewError("SubmitSM Response: Error reading header")
+	}
+	// Read message id (null terminated string or null)
+	line, err := r.ReadBytes(0x00)
+	if err != nil {
+		err = os.NewError("SubmitSM Response: Error reading message id")
+		return
+	}
+	if len(line) > 1 {
+		pdu.messageId = string(line[0:len(line) - 1])
+	}
+	// Check entire packet read
+	if pdu.header.cmdLength > uint32(len(line)) + 16 {
+		err = os.NewError("SubmitSM Response: Unknown data at end of PDU")
+	}
+	return
 }
 
 // Submit Mutli PDU
@@ -330,7 +487,7 @@ type pduSubmitMulti struct {
 	sourceAddrNpi	uint8
 	sourceAddr	string
 	numberOfDests	uint8
-	destAddrs	[]*pduDestAddr
+	destAddrs	[]string
 	esmClass	uint8
 	protocolId	uint8
 	priorityFlag	uint8
