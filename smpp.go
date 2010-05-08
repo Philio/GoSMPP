@@ -44,7 +44,7 @@ func (smpp *smpp) close() (err os.Error) {
 }
 
 // Send bind request
-func (smpp *smpp) bind(cmd, rcmd SMPPCommand, params []interface{}) (err os.Error) {
+func (smpp *smpp) bind(cmd, rcmd SMPPCommand, params Params) (err os.Error) {
 	// Sequence number starts at 1
 	smpp.sequence ++
 	// Create bind PDU
@@ -55,40 +55,29 @@ func (smpp *smpp) bind(cmd, rcmd SMPPCommand, params []interface{}) (err os.Erro
 	pdu.header.cmdId     = cmd
 	pdu.header.cmdStatus = STATUS_ESME_ROK
 	pdu.header.sequence  = smpp.sequence
-	// System id (username)
-	if len(params) > 0 {
-		pdu.systemId = params[0].(string)
-		pdu.header.cmdLength += uint32(len(pdu.systemId))
-	}
-	// Password
-	if len(params) > 1 {
-		pdu.password = params[1].(string)
-		pdu.header.cmdLength += uint32(len(pdu.password))
-	}
-	// System type
-	if len(params) > 2 {
-		pdu.systemType = params[2].(string)
-		pdu.header.cmdLength += uint32(len(pdu.systemType))
-	}
-	// Interface version
-	pdu.ifVersion = SMPP_INTERFACE_VER
-	// TON
-	if len(params) > 3 {
-		pdu.addrTon = params[3].(SMPPTypeOfNumber)
-	} else {
-		pdu.addrTon = TON_UNKNOWN
-	}
-	// NPI
-	if len(params) > 4 {
-		pdu.addrNpi = params[4].(SMPPNumericPlanIndicator)
-	} else {
-		pdu.addrNpi = NPI_UNKNOWN
-	}
-	// Address range
-	if len(params) > 5 {
-		pdu.addressRange = params[5].(string)
-		pdu.header.cmdLength += uint32(len(pdu.addressRange))
-	}
+	// Mising params cause panic, this provides a clean error/exit
+	paramOK := false
+	defer func() {
+		if !paramOK && recover() != nil {
+			err = os.NewError("Bind: Panic, invalid params")
+			return
+		}
+	}()
+	// Populate params
+	pdu.systemId     = params["systemId"].(string)
+	pdu.password     = params["password"].(string)
+	pdu.systemType   = params["systemType"].(string)
+	pdu.ifVersion    = SMPP_INTERFACE_VER
+	pdu.addrTon      = params["addrTon"].(SMPPTypeOfNumber)
+	pdu.addrNpi      = params["addrNpi"].(SMPPNumericPlanIndicator)
+	pdu.addressRange = params["addressRange"].(string)
+	// Add length of strings to pdu length
+	pdu.header.cmdLength += uint32(len(pdu.systemId))
+	pdu.header.cmdLength += uint32(len(pdu.password))
+	pdu.header.cmdLength += uint32(len(pdu.systemType))
+	pdu.header.cmdLength += uint32(len(pdu.addressRange))
+	// Params were fine 'disable' the recover
+	paramOK = true
 	// Send PDU
 	err = pdu.write(smpp.writer)
 	if err != nil {
@@ -167,7 +156,9 @@ func (smpp *smpp) Unbind() (err os.Error) {
 }
 
 // Create a new Transmitter
-func NewTransmitter(host string, port int, params ...interface{}) (tx *Transmitter, err os.Error) {
+func NewTransmitter(host string, port int, params Params) (tx *Transmitter, err os.Error) {
+	// Merge params with defaults
+	allParams := mergeParams(params, defaultsBind)
 	// Create new transmitter
 	tx = new(Transmitter)
 	// Connect to server
@@ -182,7 +173,7 @@ func NewTransmitter(host string, port int, params ...interface{}) (tx *Transmitt
 		}
 	}()
 	// Bind with server
-	err = tx.bind(CMD_BIND_TRANSMITTER, CMD_BIND_TRANSMITTER_RESP, params)
+	err = tx.bind(CMD_BIND_TRANSMITTER, CMD_BIND_TRANSMITTER_RESP, allParams)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +181,9 @@ func NewTransmitter(host string, port int, params ...interface{}) (tx *Transmitt
 }
 
 // Create a new Receiver
-func NewReceiver(host string, port int, params ...interface{}) (rx *Receiver, err os.Error) {
+func NewReceiver(host string, port int, params Params) (rx *Receiver, err os.Error) {
+	// Merge params with defaults
+	allParams := mergeParams(params, defaultsBind)
 	// Create new receiver
 	rx = new(Receiver)
 	// Connect to server
@@ -205,7 +198,7 @@ func NewReceiver(host string, port int, params ...interface{}) (rx *Receiver, er
 		}
 	}()
 	// Bind with server
-	err = rx.bind(CMD_BIND_RECEIVER, CMD_BIND_RECEIVER_RESP, params)
+	err = rx.bind(CMD_BIND_RECEIVER, CMD_BIND_RECEIVER_RESP, allParams)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +206,9 @@ func NewReceiver(host string, port int, params ...interface{}) (rx *Receiver, er
 }
 
 // Create a new Transceiver
-func NewTransceiver(host string, port int, params ...interface{}) (trx *Transceiver, err os.Error) {
+func NewTransceiver(host string, port int, params Params) (trx *Transceiver, err os.Error) {
+	// Merge params with defaults
+	allParams := mergeParams(params, defaultsBind)
 	// Create new receiver
 	trx = new(Transceiver)
 	// Connect to server
@@ -228,7 +223,7 @@ func NewTransceiver(host string, port int, params ...interface{}) (trx *Transcei
 		}
 	}()
 	// Bind with server
-	err = trx.bind(CMD_BIND_TRANSCEIVER, CMD_BIND_TRANSCEIVER_RESP, params)
+	err = trx.bind(CMD_BIND_TRANSCEIVER, CMD_BIND_TRANSCEIVER_RESP, allParams)
 	if err != nil {
 		return nil, err
 	}
