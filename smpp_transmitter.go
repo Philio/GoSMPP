@@ -14,7 +14,7 @@ type Transmitter struct {
 	smpp
 }
 
-func (tx *Transmitter) SubmitSM(dest, msg string, params Params, optional ...OptParams) (msgId string, err os.Error) {
+func (tx *Transmitter) SubmitSM(dest, msg string, params Params, optional ...OptParams) (sequence uint32, msgId string, err os.Error) {
 	// Check connected and bound
 	if !tx.connected || !tx.bound {
 		err = os.NewError("SubmitSM: A bound connection is required to submit a message")
@@ -30,13 +30,13 @@ func (tx *Transmitter) SubmitSM(dest, msg string, params Params, optional ...Opt
 	// Increment sequence number
 	tx.sequence ++
 	// Create new PDU
-	pdu := new(pduSubmitSM)
+	pdu := new(PDUSubmitSM)
 	// PDU header
-	pdu.header = new(pduHeader)
-	pdu.header.cmdLength = 34
-	pdu.header.cmdId     = CMD_SUBMIT_SM
-	pdu.header.cmdStatus = STATUS_ESME_ROK
-	pdu.header.sequence  = tx.sequence
+	pdu.Header = new(PDUHeader)
+	pdu.Header.CmdLength = 34
+	pdu.Header.CmdId     = CMD_SUBMIT_SM
+	pdu.Header.CmdStatus = STATUS_ESME_ROK
+	pdu.Header.Sequence  = tx.sequence
 	// Mising params cause panic, this provides a clean error/exit
 	paramOK := false
 	defer func() {
@@ -46,34 +46,34 @@ func (tx *Transmitter) SubmitSM(dest, msg string, params Params, optional ...Opt
 		}
 	}()
 	// Populate params
-	pdu.serviceType     = allParams["serviceType"].(string)
-	pdu.sourceAddrTon   = allParams["sourceAddrTon"].(SMPPTypeOfNumber)
-	pdu.sourceAddrNpi   = allParams["sourceAddrNpi"].(SMPPNumericPlanIndicator)
-	pdu.sourceAddr      = allParams["sourceAddr"].(string)
-	pdu.destAddrTon     = allParams["destAddrTon"].(SMPPTypeOfNumber)
-	pdu.destAddrNpi     = allParams["destAddrNpi"].(SMPPNumericPlanIndicator)
-	pdu.destAddr        = dest
-	pdu.esmClass        = allParams["esmClass"].(SMPPEsmClassESME)
-	pdu.protocolId      = allParams["protocolId"].(uint8)
-	pdu.priorityFlag    = allParams["priorityFlag"].(SMPPPriority)
-	pdu.schedDelTime    = allParams["schedDelTime"].(string)
-	pdu.validityPeriod  = allParams["validityPeriod"].(string)
-	pdu.regDelivery     = allParams["regDelivery"].(SMPPDelivery)
-	pdu.replaceFlag     = allParams["replaceFlag"].(uint8)
-	pdu.dataCoding      = allParams["dataCoding"].(SMPPDataCoding)
-	pdu.smDefaultMsgId  = allParams["smDefaultMsgId"].(uint8)
-	pdu.smLength        = uint8(len(msg))
-	pdu.shortMessage    = msg
+	pdu.ServiceType     = allParams["serviceType"].(string)
+	pdu.SourceAddrTon   = allParams["sourceAddrTon"].(SMPPTypeOfNumber)
+	pdu.SourceAddrNpi   = allParams["sourceAddrNpi"].(SMPPNumericPlanIndicator)
+	pdu.SourceAddr      = allParams["sourceAddr"].(string)
+	pdu.DestAddrTon     = allParams["destAddrTon"].(SMPPTypeOfNumber)
+	pdu.DestAddrNpi     = allParams["destAddrNpi"].(SMPPNumericPlanIndicator)
+	pdu.DestAddr        = dest
+	pdu.EsmClass        = allParams["esmClass"].(SMPPEsmClassESME)
+	pdu.ProtocolId      = allParams["protocolId"].(uint8)
+	pdu.PriorityFlag    = allParams["priorityFlag"].(SMPPPriority)
+	pdu.SchedDelTime    = allParams["schedDelTime"].(string)
+	pdu.ValidityPeriod  = allParams["validityPeriod"].(string)
+	pdu.RegDelivery     = allParams["regDelivery"].(SMPPDelivery)
+	pdu.ReplaceFlag     = allParams["replaceFlag"].(uint8)
+	pdu.DataCoding      = allParams["dataCoding"].(SMPPDataCoding)
+	pdu.SmDefaultMsgId  = allParams["smDefaultMsgId"].(uint8)
+	pdu.SmLength        = uint8(len(msg))
+	pdu.ShortMessage    = msg
 	// Add length of strings to pdu length
-	pdu.header.cmdLength += uint32(len(pdu.serviceType))
-	pdu.header.cmdLength += uint32(len(pdu.sourceAddr))
-	pdu.header.cmdLength += uint32(len(pdu.destAddr))
-	pdu.header.cmdLength += uint32(len(pdu.schedDelTime))
-	pdu.header.cmdLength += uint32(len(pdu.validityPeriod))
-	pdu.header.cmdLength += uint32(len(pdu.shortMessage))
+	pdu.Header.CmdLength += uint32(len(pdu.ServiceType))
+	pdu.Header.CmdLength += uint32(len(pdu.SourceAddr))
+	pdu.Header.CmdLength += uint32(len(pdu.DestAddr))
+	pdu.Header.CmdLength += uint32(len(pdu.SchedDelTime))
+	pdu.Header.CmdLength += uint32(len(pdu.ValidityPeriod))
+	pdu.Header.CmdLength += uint32(len(pdu.ShortMessage))
 	// Calculate size of optional params
 	if len(optional) > 0 && len(optional[0]) > 0 {
-		pdu.optional = optional[0]
+		pdu.Optional = optional[0]
 		for _, val := range optional[0] {
 			v := reflect.NewValue(val)
 			switch t := v.(type) {
@@ -81,27 +81,21 @@ func (tx *Transmitter) SubmitSM(dest, msg string, params Params, optional ...Opt
 					err = os.NewError("SubmitSM: Invalid optional param format")
 					return
 				case *reflect.StringValue:
-					pdu.header.cmdLength += uint32(len(val.(string)))
-					pdu.optionalLen += uint32(len(val.(string)))
-				case *reflect.BoolValue:
-					pdu.header.cmdLength ++
-					pdu.optionalLen ++
+					pdu.Header.CmdLength += uint32(len(val.(string)))
+					pdu.OptionalLen += uint32(len(val.(string)))
 				case *reflect.Uint8Value:
-					pdu.header.cmdLength ++
-					pdu.optionalLen ++
+					pdu.Header.CmdLength ++
+					pdu.OptionalLen ++
 				case *reflect.Uint16Value:
-					pdu.header.cmdLength += 2
-					pdu.optionalLen += 2
+					pdu.Header.CmdLength += 2
+					pdu.OptionalLen += 2
 				case *reflect.Uint32Value:
-					pdu.header.cmdLength += 4
-					pdu.optionalLen += 4
-				case *reflect.Uint64Value:
-					pdu.header.cmdLength += 8
-					pdu.optionalLen += 8
+					pdu.Header.CmdLength += 4
+					pdu.OptionalLen += 4
 			}
 			// Add 4 bytes for optional param header
-			pdu.header.cmdLength += 4
-			pdu.optionalLen += 4
+			pdu.Header.CmdLength += 4
+			pdu.OptionalLen += 4
 		}
 	}
 	// Params were fine 'disable' the recover
@@ -111,25 +105,15 @@ func (tx *Transmitter) SubmitSM(dest, msg string, params Params, optional ...Opt
 	if err != nil {
 		return
 	}
-	// Create SubmitSM Response PDU
-	rpdu := new(pduSubmitSMResp)
-	// Read PDU data
-	err = rpdu.read(tx.reader)
-	if err != nil {
-		return
+	// If not async get the response
+	if tx.async {
+		sequence = tx.sequence
+	} else {
+		rpdu, err := tx.GetResp(CMD_SUBMIT_SM_RESP, tx.sequence)
+		if err != nil {
+			return
+		}
+		//msgId = rpdu.MessageId
 	}
-	// Validate PDU data
-	if rpdu.header.cmdId != CMD_SUBMIT_SM_RESP {
-		err = os.NewError("SubmitSM Response: Invalid command")
-		return
-	}
-	if rpdu.header.cmdStatus != STATUS_ESME_ROK {
-		err = os.NewError("SubmitSM Response: Error received from SMSC")
-		return
-	}
-	if rpdu.header.sequence != tx.sequence {
-		err = os.NewError("SubmitSM Response: Invalid sequence number")
-		return
-	}
-	return rpdu.messageId, nil
+	return
 }

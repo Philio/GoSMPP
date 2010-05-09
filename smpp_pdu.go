@@ -10,39 +10,48 @@ import (
 	"reflect"
 )
 
-// PDU header
-type pduHeader struct {
-	cmdLength	uint32
-	cmdId		SMPPCommand
-	cmdStatus	SMPPCommandStatus
-	sequence	uint32
+// PDU interface which all PDU types should implement
+type PDU interface {
+	// Read the PDU from the buffer
+	read(r *bufio.Reader, hdr *PDUHeader) (err os.Error)
+	
+	// Write the PDU to the buffer
+	write(w *bufio.Writer) (err os.Error)
 }
 
-// Read PDU header
-func (hdr *pduHeader) read(r *bufio.Reader) (err os.Error) {
-	// Read all 16 header bytes
+// PDU Header
+type PDUHeader struct {
+	CmdLength	uint32
+	CmdId		SMPPCommand
+	CmdStatus	SMPPCommandStatus
+	Sequence	uint32
+}
+
+// Read PDU Header
+func (hdr *PDUHeader) read(r *bufio.Reader) (err os.Error) {
+	// Read all 16 Header bytes
 	p := make([]byte, 16)
 	_, err = r.Read(p)
 	if err != nil {
 		return
 	}
-	// Convert bytes into header vars
-	hdr.cmdLength = uint32(unpackUint(p[0:4]))
-	hdr.cmdId     = SMPPCommand(unpackUint(p[4:8]))
-	hdr.cmdStatus = SMPPCommandStatus(unpackUint(p[8:12]))
-	hdr.sequence  = uint32(unpackUint(p[12:16]))
+	// Convert bytes into Header vars
+	hdr.CmdLength = uint32(unpackUint(p[0:4]))
+	hdr.CmdId     = SMPPCommand(unpackUint(p[4:8]))
+	hdr.CmdStatus = SMPPCommandStatus(unpackUint(p[8:12]))
+	hdr.Sequence  = uint32(unpackUint(p[12:16]))
 	return
 }
 
-// Write PDU header
-func (hdr *pduHeader) write(w *bufio.Writer) (err os.Error) {
-	// Convert header into byte array
+// Write PDU Header
+func (hdr *PDUHeader) write(w *bufio.Writer) (err os.Error) {
+	// Convert Header into byte array
 	p := make([]byte, 16)
-	copy(p[0:4],   packUint(uint64(hdr.cmdLength), 4))
-	copy(p[4:8],   packUint(uint64(hdr.cmdId), 4))
-	copy(p[8:12],  packUint(uint64(hdr.cmdStatus), 4))
-	copy(p[12:16], packUint(uint64(hdr.sequence), 4))
-	// Write header
+	copy(p[0:4],   packUint(uint64(hdr.CmdLength), 4))
+	copy(p[4:8],   packUint(uint64(hdr.CmdId), 4))
+	copy(p[8:12],  packUint(uint64(hdr.CmdStatus), 4))
+	copy(p[12:16], packUint(uint64(hdr.Sequence), 4))
+	// Write Header
 	_, err = w.Write(p)
 	if err != nil {
 		return
@@ -59,7 +68,7 @@ type pduOptParam struct {
 	value		interface{}
 }
 
-// Read optional param
+// Read Optional param
 func (op *pduOptParam) read(r *bufio.Reader) (err os.Error) {
 	// Read first 4 descripter bytes
 	p := make([]byte, 4)
@@ -70,20 +79,30 @@ func (op *pduOptParam) read(r *bufio.Reader) (err os.Error) {
 	op.tag    = uint16(unpackUint(p[0:2]))
 	op.length = uint16(unpackUint(p[2:4]))
 	// Read value data
-	vp := make([]byte, op.length)
-	_, err = r.Read(vp)
-	if err != nil {
-		return
-	}
-	// Determine data type of value
-	switch op.tag {
-		case TAG_SC_INTERFACE_VERSION:
-			op.value = vp[0]
+	if op.length > 0 {
+		vp := make([]byte, op.length)
+		_, err = r.Read(vp)
+		if err != nil {
+			return
+		}
+		// Determine data type of value
+		switch op.tag {
+			case TAG_ADDITIONAL_STATUS_INFO_TEXT, TAG_RECEIPTED_MESSAGE_ID, TAG_SOURCE_SUBADDRESS, TAG_DEST_SUBADDRESS, TAG_NETWORK_ERROR_CODE, TAG_MESSAGE_PAYLOAD, TAG_CALLBACK_NUM, TAG_CALLBACK_NUM_ATAG, TAG_ITS_SESSION_INFO:
+				op.value = string(vp)
+			case TAG_DEST_ADDR_SUBUNIT, TAG_SOURCE_ADDR_SUBUNIT, TAG_DEST_NETWORK_TYPE, TAG_SOURCE_NETWORK_TYPE, TAG_DEST_BEARER_TYPE, TAG_SOURCE_BEARER_TYPE, TAG_SOURCE_TELEMATICS_ID, TAG_PAYLOAD_TYPE, TAG_MS_MSG_WAIT_FACILITIES, TAG_PRIVACY_INDICATOR, TAG_USER_RESPONSE_CODE, TAG_LANGUAGE_INDICATOR, TAG_SAR_TOTAL_SEGMENTS, TAG_SAR_SEGMENT_SEQNUM, TAG_SC_INTERFACE_VERSION, TAG_DISPLAY_TIME, TAG_MS_VALIDITY, TAG_DPF_RESULT, TAG_SET_DPF, TAG_MS_AVAILABILITY_STATUS, TAG_DELIVERY_FAILURE_REASON, TAG_MORE_MESSAGES_TO_SEND, TAG_MESSAGE_STATE, TAG_CALLBACK_NUM_PRES_IND, TAG_NUMBER_OF_MESSAGES, TAG_SMS_SIGNAL, TAG_ITS_REPLY_TYPE, TAG_USSD_SERVICE_OP:
+				op.value = uint8(vp[0])
+			case TAG_DEST_TELEMATICS_ID, TAG_USER_MESSAGE_REFERENCE, TAG_SOURCE_PORT, TAG_DESTINATION_PORT, TAG_SAR_MSG_REF_NUM:
+				op.value = uint16(unpackUint(vp))
+			case TAG_QOS_TIME_TO_LIVE:
+				op.value = uint32(unpackUint(vp))
+		}
+	} else {
+		op.value = nil
 	}
 	return
 }
 
-// Write optional param
+// Write Optional param
 func (op *pduOptParam) write(w *bufio.Writer) (err os.Error) {
 	// Create byte array
 	p := make([]byte, 4 + op.length)
@@ -94,20 +113,12 @@ func (op *pduOptParam) write(w *bufio.Writer) (err os.Error) {
 	switch t := v.(type) {
 		case *reflect.StringValue:
 			copy(p[4:op.length], []byte(op.value.(string)))
-		case *reflect.BoolValue:
-			if op.value.(bool) {
-				p[4] = byte(1)
-			} else {
-				p[4] = byte(0)
-			}
 		case *reflect.Uint8Value:
 			p[4] = byte(op.value.(uint8))
 		case *reflect.Uint16Value:
 			copy(p[4:6], packUint(uint64(op.value.(uint16)), 2))
 		case *reflect.Uint32Value:
 			copy(p[4:8], packUint(uint64(op.value.(uint32)), 4))
-		case *reflect.Uint64Value:
-			copy(p[4:12], packUint(uint64(op.value.(uint64)), 8))
 	}
 	// Write to buffer
 	_, err = w.Write(p)
@@ -120,65 +131,123 @@ func (op *pduOptParam) write(w *bufio.Writer) (err os.Error) {
 }
 
 // Bind PDU
-type pduBind struct {
-	header		*pduHeader
-	systemId	string
-	password	string
-	systemType	string
-	ifVersion	uint8
-	addrTon		SMPPTypeOfNumber
-	addrNpi		SMPPNumericPlanIndicator
-	addressRange	string
+type PDUBind struct {
+	Header		*PDUHeader
+	SystemId	string
+	Password	string
+	SystemType	string
+	IfVersion	uint8
+	AddrTon		SMPPTypeOfNumber
+	AddrNpi		SMPPNumericPlanIndicator
+	AddressRange	string
 }
 
 // Read Bind PDU
-// @todo used for server
-func (pdu *pduBind) read(r *bufio.Reader) (err os.Error) {
+func (pdu *PDUBind) read(r *bufio.Reader, hdr *PDUHeader) (err os.Error) {
+	// Set Header
+	pdu.Header = hdr
+	// Read system id (null terminated string or null)
+	line, err := r.ReadBytes(0x00)
+	if err != nil {
+		err = os.NewError("Bind: Error reading system id")
+		return
+	}
+	if len(line) > 1 {
+		pdu.SystemId = string(line[0:len(line) - 1])
+	}
+	// Read Password (null terminated string or null)
+	line, err = r.ReadBytes(0x00)
+	if err != nil {
+		err = os.NewError("Bind: Error reading Password")
+		return
+	}
+	if len(line) > 1 {
+		pdu.Password = string(line[0:len(line) - 1])
+	}
+	// Read system type
+	line, err = r.ReadBytes(0x00)
+	if err != nil {
+		err = os.NewError("Bind: Error reading system type")
+		return
+	}
+	if len(line) > 1 {
+		pdu.SystemType = string(line[0:len(line) - 1])
+	}
+	// Read interface version
+	c, err := r.ReadByte()
+	if err != nil {
+		err = os.NewError("Bind: Error reading interface version")
+		return
+	}
+	pdu.IfVersion = uint8(c)
+	// Read TON
+	c, err = r.ReadByte()
+	if err != nil {
+		err = os.NewError("Bind: Error reading default type of number")
+		return
+	}
+	pdu.AddrTon = SMPPTypeOfNumber(c)
+	// Read NPI
+	c, err = r.ReadByte()
+	if err != nil {
+		err = os.NewError("Bind: Error reading default number plan indicator")
+		return
+	}
+	pdu.AddrNpi = SMPPNumericPlanIndicator(c)
+	// Read Address range
+	line, err = r.ReadBytes(0x00)
+	if err != nil {
+		err = os.NewError("Bind Response: Error reading system type")
+		return
+	}
+	if len(line) > 1 {
+		pdu.AddressRange = string(line[0:len(line) - 1])
+	}
 	return
 }
 
 // Write Bind PDU
-func (pdu *pduBind) write(w *bufio.Writer) (err os.Error) {
-	// Write header
-	err = pdu.header.write(w)
+func (pdu *PDUBind) write(w *bufio.Writer) (err os.Error) {
+	// Write Header
+	err = pdu.Header.write(w)
 	if err != nil {
-		err = os.NewError("Bind: Error writing header")
+		err = os.NewError("Bind: Error writing Header")
 		return
 	}
 	// Create byte array the size of the PDU
-	p := make([]byte, pdu.header.cmdLength - 16)
+	p := make([]byte, pdu.Header.CmdLength - 16)
 	pos := 0
 	// Copy system id
-	if len(pdu.systemId) > 0 {
-		copy(p[pos:len(pdu.systemId)], []byte(pdu.systemId))
-		pos += len(pdu.systemId)
+	if len(pdu.SystemId) > 0 {
+		copy(p[pos:len(pdu.SystemId)], []byte(pdu.SystemId))
+		pos += len(pdu.SystemId)
 	}
 	pos ++ // Null terminator
-	// Copy password
-	if len(pdu.password) > 0 {
-		copy(p[pos:pos + len(pdu.password)], []byte(pdu.password))
-		pos += len(pdu.password)
+	// Copy Password
+	if len(pdu.Password) > 0 {
+		copy(p[pos:pos + len(pdu.Password)], []byte(pdu.Password))
+		pos += len(pdu.Password)
 	}
 	pos ++ // Null terminator
 	// Copy system type
-	if len(pdu.systemType) > 0 {
-		copy(p[pos:pos + len(pdu.systemType)], []byte(pdu.systemType))
-		pos += len(pdu.systemType)
+	if len(pdu.SystemType) > 0 {
+		copy(p[pos:pos + len(pdu.SystemType)], []byte(pdu.SystemType))
+		pos += len(pdu.SystemType)
 	}
 	pos ++ // Null terminator
 	// Add interface version
-	p[pos] = byte(pdu.ifVersion)
+	p[pos] = byte(pdu.IfVersion)
 	pos ++
 	// Add TON
-	p[pos] = byte(pdu.addrTon)
+	p[pos] = byte(pdu.AddrTon)
 	pos ++
 	// Add NPI
-	p[pos] = byte(pdu.addrNpi)
+	p[pos] = byte(pdu.AddrNpi)
 	pos ++
-	// Copy address range
-	if len(pdu.addressRange) > 0 {
-		copy(p[pos:pos + len(pdu.addressRange)], []byte(pdu.addressRange))
-		pos += len(pdu.addressRange)
+	// Copy Address range
+	if len(pdu.AddressRange) > 0 {
+		copy(p[pos:pos + len(pdu.AddressRange)], []byte(pdu.AddressRange))
+		pos += len(pdu.AddressRange)
 	}
 	// Write to buffer
 	_, err = w.Write(p)
@@ -195,217 +264,201 @@ func (pdu *pduBind) write(w *bufio.Writer) (err os.Error) {
 }
 
 // Bind Response PDU
-type pduBindResp struct {
-	header		*pduHeader
-	systemId	string
-	optional	OptParams
+type PDUBindResp struct {
+	Header		*PDUHeader
+	SystemId	string
+	Optional	OptParams
 }
 
 // Read Bind Response PDU
-func (pdu *pduBindResp) read(r *bufio.Reader) (err os.Error) {
-	// Read header
-	pdu.header = new(pduHeader)
-	err = pdu.header.read(r)
-	if err != nil {
-		err = os.NewError("Bind Response: Error reading header")
-		return
-	}
+func (pdu *PDUBindResp) read(r *bufio.Reader, hdr *PDUHeader) (err os.Error) {
+	// Set Header
+	pdu.Header = hdr
 	// Read system id (null terminated string or null)
 	line, err := r.ReadBytes(0x00)
 	if err != nil {
-		err = os.NewError("Bind Response: Error reading SMSC system id")
+		err = os.NewError("Bind Response: Error reading system id")
 		return
 	}
 	if len(line) > 1 {
-		pdu.systemId = string(line[0:len(line) - 1])
+		pdu.SystemId = string(line[0:len(line) - 1])
 	}
-	// Read optional param
-	if pdu.header.cmdLength > 16 + uint32(len(pdu.systemId)) + 1 {
+	// Read Optional param
+	if pdu.Header.CmdLength > uint32(len(pdu.SystemId)) + 17 {
 		op := new(pduOptParam)
 		err = op.read(r)
 		if err != nil {
-			err = os.NewError("Bind Response: Error reading optional param")
+			err = os.NewError("Bind Response: Error reading Optional param")
 			return
 		}
-		pdu.optional = OptParams{SMPPOptionalParamTag(op.tag): op.value}
+		pdu.Optional = OptParams{SMPPOptionalParamTag(op.tag): op.value}
 	}
 	return
 }
 
 // Write Bind Response PDU
-// @todo used for server
-func (pdu *pduBindResp) write(w *bufio.Writer) (err os.Error) {
+// @todo complete this
+func (pdu *PDUBindResp) write(w *bufio.Writer) (err os.Error) {
 	return
 }
 
 // Unbind PDU
-type pduUnbind struct {
-	header		*pduHeader
+type PDUUnbind struct {
+	Header		*PDUHeader
 }
 
 // Read Unbind PDU
-func (pdu *pduUnbind) read(r *bufio.Reader) (err os.Error) {
-	// Read header
-	pdu.header = new(pduHeader)
-	err = pdu.header.read(r)
-	if err != nil {
-		err = os.NewError("Unbind: Error reading header")
-	}
+func (pdu *PDUUnbind) read(r *bufio.Reader, hdr *PDUHeader) (err os.Error) {
+	// Set Header
+	pdu.Header = hdr
 	return
 }
 
 // Write Unbind PDU
-func (pdu *pduUnbind) write(w *bufio.Writer) (err os.Error) {
-	// Write header
-	err = pdu.header.write(w)
+func (pdu *PDUUnbind) write(w *bufio.Writer) (err os.Error) {
+	// Write Header
+	err = pdu.Header.write(w)
 	if err != nil {
-		err = os.NewError("Unbind: Error writing header")
+		err = os.NewError("Unbind: Error writing Header")
 	}
 	return
 }
 
 // Unbind Response PDU
-type pduUnbindResp struct {
-	header		*pduHeader
+type PDUUnbindResp struct {
+	Header		*PDUHeader
 }
 
 // Read Unbind Response PDU
-func (pdu *pduUnbindResp) read(r *bufio.Reader) (err os.Error) {
-	// Read header
-	pdu.header = new(pduHeader)
-	err = pdu.header.read(r)
-	if err != nil {
-		err = os.NewError("Unbind Response: Error reading header")
-	}
+func (pdu *PDUUnbindResp) read(r *bufio.Reader, hdr *PDUHeader) (err os.Error) {
+	// Set Header
+	pdu.Header = hdr
 	return
 }
 
 // Write Unbind Response PDU
-func (pdu *pduUnbindResp) write(w *bufio.Writer) (err os.Error) {
-	// Write header
-	err = pdu.header.write(w)
+func (pdu *PDUUnbindResp) write(w *bufio.Writer) (err os.Error) {
+	// Write Header
+	err = pdu.Header.write(w)
 	if err != nil {
-		err = os.NewError("Unbind Response: Error writing header")
+		err = os.NewError("Unbind Response: Error writing Header")
 	}
 	return
 }
 
-// Generic Nack PDU
-type pduGenericNack struct {
-	header		*pduHeader
-}
-
 // Submit SM PDU
-type pduSubmitSM struct {
-	header		*pduHeader
-	serviceType	string
-	sourceAddrTon	SMPPTypeOfNumber
-	sourceAddrNpi	SMPPNumericPlanIndicator
-	sourceAddr	string
-	destAddrTon	SMPPTypeOfNumber
-	destAddrNpi	SMPPNumericPlanIndicator
-	destAddr	string
-	esmClass	SMPPEsmClassESME
-	protocolId	uint8
-	priorityFlag	SMPPPriority
-	schedDelTime	string
-	validityPeriod	string
-	regDelivery	SMPPDelivery
-	replaceFlag	uint8
-	dataCoding	SMPPDataCoding
-	smDefaultMsgId	uint8
-	smLength	uint8
-	shortMessage	string
-	optional	OptParams
-	optionalLen	uint32
+type PDUSubmitSM struct {
+	Header		*PDUHeader
+	ServiceType	string
+	SourceAddrTon	SMPPTypeOfNumber
+	SourceAddrNpi	SMPPNumericPlanIndicator
+	SourceAddr	string
+	DestAddrTon	SMPPTypeOfNumber
+	DestAddrNpi	SMPPNumericPlanIndicator
+	DestAddr	string
+	EsmClass	SMPPEsmClassESME
+	ProtocolId	uint8
+	PriorityFlag	SMPPPriority
+	SchedDelTime	string
+	ValidityPeriod	string
+	RegDelivery	SMPPDelivery
+	ReplaceFlag	uint8
+	DataCoding	SMPPDataCoding
+	SmDefaultMsgId	uint8
+	SmLength	uint8
+	ShortMessage	string
+	Optional	OptParams
+	OptionalLen	uint32
 }
 
 // Read SubmitSM PDU
-func (pdu *pduSubmitSM) read(r *bufio.Reader) (err os.Error) {
+func (pdu *PDUSubmitSM) read(r *bufio.Reader, hdr *PDUHeader) (err os.Error) {
+	// Set Header
+	pdu.Header = hdr
 	return
 }
 
 // Write SubmitSM PDU
-func (pdu *pduSubmitSM) write(w *bufio.Writer) (err os.Error) {
-	// Write header
-	err = pdu.header.write(w)
+func (pdu *PDUSubmitSM) write(w *bufio.Writer) (err os.Error) {
+	// Write Header
+	err = pdu.Header.write(w)
 	if err != nil {
-		err = os.NewError("SubmitSM: Error writing header")
+		err = os.NewError("SubmitSM: Error writing Header")
 		return
 	}
 	// Create byte array the size of the PDU
-	p := make([]byte, pdu.header.cmdLength - 16 - pdu.optionalLen)
+	p := make([]byte, pdu.Header.CmdLength - 16 - pdu.OptionalLen)
 	pos := 0
 	// Copy service type
-	if len(pdu.serviceType) > 0 {
-		copy(p[pos:len(pdu.serviceType)], []byte(pdu.serviceType))
-		pos += len(pdu.serviceType)
+	if len(pdu.ServiceType) > 0 {
+		copy(p[pos:len(pdu.ServiceType)], []byte(pdu.ServiceType))
+		pos += len(pdu.ServiceType)
 	}
 	pos ++ // Null terminator
 	// Source TON
-	p[pos] = byte(pdu.sourceAddrTon)
+	p[pos] = byte(pdu.SourceAddrTon)
 	pos ++
 	// Source NPI
-	p[pos] = byte(pdu.sourceAddrNpi)
+	p[pos] = byte(pdu.SourceAddrNpi)
 	pos ++
 	// Source Address
-	if len(pdu.sourceAddr) > 0 {
-		copy(p[pos:pos + len(pdu.sourceAddr)], []byte(pdu.sourceAddr))
-		pos += len(pdu.sourceAddr)
+	if len(pdu.SourceAddr) > 0 {
+		copy(p[pos:pos + len(pdu.SourceAddr)], []byte(pdu.SourceAddr))
+		pos += len(pdu.SourceAddr)
 	}
 	pos ++ // Null terminator
 	// Destination TON
-	p[pos] = byte(pdu.destAddrTon)
+	p[pos] = byte(pdu.DestAddrTon)
 	pos ++
 	// Destination NPI
-	p[pos] = byte(pdu.destAddrNpi)
+	p[pos] = byte(pdu.DestAddrNpi)
 	pos ++
 	// Destination Address
-	if len(pdu.destAddr) > 0 {
-		copy(p[pos:pos + len(pdu.destAddr)], []byte(pdu.destAddr))
-		pos += len(pdu.destAddr)
+	if len(pdu.DestAddr) > 0 {
+		copy(p[pos:pos + len(pdu.DestAddr)], []byte(pdu.DestAddr))
+		pos += len(pdu.DestAddr)
 	}
 	pos ++ // Null terminator
 	// ESM Class
-	p[pos] = byte(pdu.esmClass)
+	p[pos] = byte(pdu.EsmClass)
 	pos ++
 	// Protocol Id
-	p[pos] = byte(pdu.protocolId)
+	p[pos] = byte(pdu.ProtocolId)
 	pos ++
 	// Priority Flag
-	p[pos] = byte(pdu.priorityFlag)
+	p[pos] = byte(pdu.PriorityFlag)
 	pos ++
 	// Sheduled Delivery Time
-	if len(pdu.schedDelTime) > 0 {
-		copy(p[pos:pos + len(pdu.schedDelTime)], []byte(pdu.schedDelTime))
-		pos += len(pdu.schedDelTime)
+	if len(pdu.SchedDelTime) > 0 {
+		copy(p[pos:pos + len(pdu.SchedDelTime)], []byte(pdu.SchedDelTime))
+		pos += len(pdu.SchedDelTime)
 	}
 	pos ++ // Null terminator
 	// Validity Period
-	if len(pdu.validityPeriod) > 0 {
-		copy(p[pos:pos + len(pdu.validityPeriod)], []byte(pdu.validityPeriod))
-		pos += len(pdu.validityPeriod)
+	if len(pdu.ValidityPeriod) > 0 {
+		copy(p[pos:pos + len(pdu.ValidityPeriod)], []byte(pdu.ValidityPeriod))
+		pos += len(pdu.ValidityPeriod)
 	}
 	pos ++ // Null terminator
 	// Registered Delivery
-	p[pos] = byte(pdu.regDelivery)
+	p[pos] = byte(pdu.RegDelivery)
 	pos ++
 	// Replace Flag
-	p[pos] = byte(pdu.replaceFlag)
+	p[pos] = byte(pdu.ReplaceFlag)
 	pos ++
 	// Data Coding
-	p[pos] = byte(pdu.dataCoding)
+	p[pos] = byte(pdu.DataCoding)
 	pos ++
 	// Default Msg Id
-	p[pos] = byte(pdu.smDefaultMsgId)
+	p[pos] = byte(pdu.SmDefaultMsgId)
 	pos ++
 	// Msg Length
-	p[pos] = byte(pdu.smLength)
+	p[pos] = byte(pdu.SmLength)
 	pos ++
 	// Message
-	if len(pdu.shortMessage) > 0 {
-		copy(p[pos:pos + len(pdu.shortMessage)], []byte(pdu.shortMessage))
-		pos += len(pdu.shortMessage)
+	if len(pdu.ShortMessage) > 0 {
+		copy(p[pos:pos + len(pdu.ShortMessage)], []byte(pdu.ShortMessage))
+		pos += len(pdu.ShortMessage)
 	}
 	// Write to buffer
 	_, err = w.Write(p)
@@ -420,8 +473,8 @@ func (pdu *pduSubmitSM) write(w *bufio.Writer) (err os.Error) {
 		return
 	}
 	// Optional params
-	if len(pdu.optional) > 0 {
-		for key, val := range pdu.optional {
+	if len(pdu.Optional) > 0 {
+		for key, val := range pdu.Optional {
 			op := new(pduOptParam)
 			op.tag = uint16(key)
 			op.value = val
@@ -450,19 +503,15 @@ func (pdu *pduSubmitSM) write(w *bufio.Writer) (err os.Error) {
 }
 
 // SubmitSM Response PDU
-type pduSubmitSMResp struct {
-	header		*pduHeader
-	messageId	string
+type PDUSubmitSMResp struct {
+	Header		*PDUHeader
+	MessageId	string
 }
 
 // Read SubmitSM Response PDU
-func (pdu *pduSubmitSMResp) read(r *bufio.Reader) (err os.Error) {
-	// Read header
-	pdu.header = new(pduHeader)
-	err = pdu.header.read(r)
-	if err != nil {
-		err = os.NewError("SubmitSM Response: Error reading header")
-	}
+func (pdu *PDUSubmitSMResp) read(r *bufio.Reader, hdr *PDUHeader) (err os.Error) {
+	// Set Header
+	pdu.Header = hdr
 	// Read message id (null terminated string or null)
 	line, err := r.ReadBytes(0x00)
 	if err != nil {
@@ -470,140 +519,18 @@ func (pdu *pduSubmitSMResp) read(r *bufio.Reader) (err os.Error) {
 		return
 	}
 	if len(line) > 1 {
-		pdu.messageId = string(line[0:len(line) - 1])
+		pdu.MessageId = string(line[0:len(line) - 1])
 	}
 	// Check entire packet read
-	if pdu.header.cmdLength > uint32(len(line)) + 16 {
+	if pdu.Header.CmdLength > uint32(len(line)) + 16 {
 		err = os.NewError("SubmitSM Response: Unknown data at end of PDU")
 	}
 	return
 }
 
-// Submit Mutli PDU
-type pduSubmitMulti struct {
-	header		*pduHeader
-	serviceType	string
-	sourceAddrTon	uint8
-	sourceAddrNpi	uint8
-	sourceAddr	string
-	numberOfDests	uint8
-	destAddrs	[]string
-	esmClass	uint8
-	protocolId	uint8
-	priorityFlag	uint8
-	schedDelTime	string
-	validityPeriod	string
-	regDelivery	uint8
-	replaceFlag	uint8
-	dataCoding	uint8
-	smDefaultMsgId	uint8
-	smLength	uint8
-	shortMessage	string
-	userMsgRef	*pduOptParam	// Optional
-	sourcePort	*pduOptParam	// Optional
-	sourceAddrSub	*pduOptParam	// Optional
-	destPort	*pduOptParam	// Optional
-	destAddrSub	*pduOptParam	// Optional
-	sarMsgRef	*pduOptParam	// Optional
-	sarTotalSegs	*pduOptParam	// Optional
-	sarSegSeqnum	*pduOptParam	// Optional
-	payloadType	*pduOptParam	// Optional
-	msgPayload	*pduOptParam	// Optional
-	privacyInd	*pduOptParam	// Optional
-	callbkNum	*pduOptParam	// Optional
-	callbkNumPreInd	*pduOptParam	// Optional
-	callbkNumAtag	*pduOptParam	// Optional
-	sourceSubaddr	*pduOptParam	// Optional
-	destSubaddr	*pduOptParam	// Optional
-	displayTime	*pduOptParam	// Optional
-	smsSignal	*pduOptParam	// Optional
-	msValidity	*pduOptParam	// Optional
-	msMsgWaitFac	*pduOptParam	// Optional
-	alertOnMsgDel	*pduOptParam	// Optional
-	langInd		*pduOptParam	// Optional
-	destFlag	uint8
-}
-
-// Submit Multi Response PDU
-type pduSubmitMultiResp struct {
-	header		*pduHeader
-	messageId	string
-	noUnsuccess	uint8
-	unsuccessSmes	[]*pduUnsuccessSme
-}
-
-// Deliver SM PDU
-type pduDeliverSM struct {
-	header		*pduHeader
-	serviceType	string
-	sourceAddrTon	uint8
-	sourceAddrNpi	uint8
-	sourceAddr	string
-	destAddrTon	uint8
-	destAddrNpi	uint8
-	destAddr	string
-	esmClass	uint8
-	protocolId	uint8
-	priorityFlag	uint8
-	schedDelTime	string
-	validityPeriod	string
-	regDelivery	uint8
-	replaceFlag	uint8
-	dataCoding	uint8
-	smDefaultMsgId	uint8
-	smLength	uint8
-	shortMessage	string
-	userMsgRef	*pduOptParam	// Optional
-	sourcePort	*pduOptParam	// Optional
-	destPort	*pduOptParam	// Optional
-	sarMsgRef	*pduOptParam	// Optional
-	sarTotalSegs	*pduOptParam	// Optional
-	sarSegSeqnum	*pduOptParam	// Optional
-	userResCode	*pduOptParam	// Optional
-	privacyInd	*pduOptParam	// Optional
-	payloadType	*pduOptParam	// Optional
-	msgPayload	*pduOptParam	// Optional
-	callbkNum	*pduOptParam	// Optional
-	sourceSubaddr	*pduOptParam	// Optional
-	destSubaddr	*pduOptParam	// Optional
-	langInd		*pduOptParam	// Optional
-	itsSessInfo	*pduOptParam	// Optional
-	netErrorCode	*pduOptParam	// Optional
-	messageState	*pduOptParam	// Optional
-	recMessageId	*pduOptParam	// Optional
-}
-
-// Deliver SM Response PDU
-type pduDeliverSMResp struct {
-	header		*pduHeader
-	messageId	string
-}
-
-// Destination address
-type pduDestAddr struct {
-	destFlag	uint8
-	destAddr	*pduSMEDestAddr		// Either
-	distList	*pduDistributionList	// Or
-}	
-
-// SME Destination address
-type pduSMEDestAddr struct {
-	destAddrTon	uint8
-	destAddrNpi	uint8
-	destAddr	string
-}
-
-// Distribution list
-type pduDistributionList struct {
-	dlName		string
-}
-
-// SME Destination address
-type pduUnsuccessSme struct {
-	destAddrTon	uint8
-	destAddrNpi	uint8
-	destAddr	string
-	errorCode	uint32
+// Write SubmitSM Response PDU
+func (pdu *PDUSubmitSMResp) write(r *bufio.Writer) (err os.Error) {
+	return
 }
 
 // Unpack uint from l bytes (big endian)
