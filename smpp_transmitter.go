@@ -113,7 +113,8 @@ func (tx *Transmitter) SubmitSM(dest, msg string, params Params, optional ...Opt
 		if err != nil {
 			return
 		}
-		//msgId = rpdu.MessageId
+		s := rpdu.GetStruct()
+		msgId = s.(PDUSubmitSMResp).MessageId
 	}
 	return
 }
