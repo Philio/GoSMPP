@@ -127,11 +127,14 @@ func (smpp *smpp) Unbind() (sequence uint32, err os.Error) {
 
 // Get response PDU 
 func (smpp *smpp) GetResp(cmd SMPPCommand, sequence uint32) (rpdu PDU, err os.Error) {
-	// Has packet been read
-	pduRead := false
 	// Read the header
 	hdr := new(PDUHeader)
 	err = hdr.read(smpp.reader)
+	if err != nil {
+		return nil, err
+	}
+	// Has packet been read
+	pduRead := false	
 	// Defer reading rest of packet from buffer on error
 	defer func() {
 		if err != nil && !pduRead && hdr.CmdLength > 16 {
