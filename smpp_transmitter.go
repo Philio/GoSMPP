@@ -29,14 +29,12 @@ func (tx *Transmitter) SubmitSM(dest, msg string, params Params, optional ...Opt
 	allParams := mergeParams(params, defaultsSubmitSM)
 	// Increment sequence number
 	tx.sequence ++
-	// Create new PDU
-	pdu := new(PDUSubmitSM)
 	// PDU header
-	pdu.Header = new(PDUHeader)
-	pdu.Header.CmdLength = 34
-	pdu.Header.CmdId     = CMD_SUBMIT_SM
-	pdu.Header.CmdStatus = STATUS_ESME_ROK
-	pdu.Header.Sequence  = tx.sequence
+	hdr := new(PDUHeader)
+	hdr.CmdLength = 34
+	hdr.CmdId     = CMD_SUBMIT_SM
+	hdr.CmdStatus = STATUS_ESME_ROK
+	hdr.Sequence  = tx.sequence
 	// Mising params cause panic, this provides a clean error/exit
 	paramOK := false
 	defer func() {
@@ -45,6 +43,8 @@ func (tx *Transmitter) SubmitSM(dest, msg string, params Params, optional ...Opt
 			return
 		}
 	}()
+	// Create new PDU
+	pdu := new(PDUSubmitSM)
 	// Populate params
 	pdu.ServiceType     = allParams["serviceType"].(string)
 	pdu.SourceAddrTon   = allParams["sourceAddrTon"].(SMPPTypeOfNumber)
@@ -65,12 +65,12 @@ func (tx *Transmitter) SubmitSM(dest, msg string, params Params, optional ...Opt
 	pdu.SmLength        = uint8(len(msg))
 	pdu.ShortMessage    = msg
 	// Add length of strings to pdu length
-	pdu.Header.CmdLength += uint32(len(pdu.ServiceType))
-	pdu.Header.CmdLength += uint32(len(pdu.SourceAddr))
-	pdu.Header.CmdLength += uint32(len(pdu.DestAddr))
-	pdu.Header.CmdLength += uint32(len(pdu.SchedDelTime))
-	pdu.Header.CmdLength += uint32(len(pdu.ValidityPeriod))
-	pdu.Header.CmdLength += uint32(len(pdu.ShortMessage))
+	hdr.CmdLength += uint32(len(pdu.ServiceType))
+	hdr.CmdLength += uint32(len(pdu.SourceAddr))
+	hdr.CmdLength += uint32(len(pdu.DestAddr))
+	hdr.CmdLength += uint32(len(pdu.SchedDelTime))
+	hdr.CmdLength += uint32(len(pdu.ValidityPeriod))
+	hdr.CmdLength += uint32(len(pdu.ShortMessage))
 	// Calculate size of optional params
 	if len(optional) > 0 && len(optional[0]) > 0 {
 		pdu.Optional = optional[0]
@@ -81,26 +81,27 @@ func (tx *Transmitter) SubmitSM(dest, msg string, params Params, optional ...Opt
 					err = os.NewError("SubmitSM: Invalid optional param format")
 					return
 				case *reflect.StringValue:
-					pdu.Header.CmdLength += uint32(len(val.(string)))
+					hdr.CmdLength += uint32(len(val.(string)))
 					pdu.OptionalLen += uint32(len(val.(string)))
 				case *reflect.Uint8Value:
-					pdu.Header.CmdLength ++
+					hdr.CmdLength ++
 					pdu.OptionalLen ++
 				case *reflect.Uint16Value:
-					pdu.Header.CmdLength += 2
+					hdr.CmdLength += 2
 					pdu.OptionalLen += 2
 				case *reflect.Uint32Value:
-					pdu.Header.CmdLength += 4
+					hdr.CmdLength += 4
 					pdu.OptionalLen += 4
 			}
 			// Add 4 bytes for optional param header
-			pdu.Header.CmdLength += 4
+			hdr.CmdLength += 4
 			pdu.OptionalLen += 4
 		}
 	}
 	// Params were fine 'disable' the recover
 	paramOK = true
 	// Send PDU
+	pdu.setHeader(hdr)
 	err = pdu.write(tx.writer)
 	if err != nil {
 		return

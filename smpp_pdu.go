@@ -51,7 +51,7 @@ func (pdu *PDUCommon) GetStruct() interface{} {
 }
 
 // Write Optional Params
-func (pdu *PDUCommon) writeOptional(){
+func (pdu *PDUCommon) writeOptional(w *bufio.Writer) (err os.Error) {
 	if len(pdu.Optional) > 0 {
 		for key, val := range pdu.Optional {
 			op := new(pduOptParam)
@@ -78,6 +78,7 @@ func (pdu *PDUCommon) writeOptional(){
 			}
 		}
 	}
+	return
 }
 
 // Bind PDU
@@ -275,7 +276,10 @@ func (pdu *PDUBindResp) write(w *bufio.Writer) (err os.Error) {
 		err = os.NewError("Bind Response: Error flushing write buffer")
 	}
 	// Optional params
-	pdu.writeOptional()
+	err = pdu.writeOptional(w)
+	if err != nil {
+		err = os.NewError("Bind Response: Error writing optional params")
+	}
 	return
 }
 
@@ -457,7 +461,10 @@ func (pdu *PDUSubmitSM) write(w *bufio.Writer) (err os.Error) {
 		return
 	}
 	// Optional params
-	pdu.writeOptional()
+	err = pdu.writeOptional(w)
+	if err != nil {
+		err = os.NewError("SubmitSM: Error writing optional params")
+	}
 	return
 }
 

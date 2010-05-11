@@ -48,14 +48,14 @@ func (smpp *smpp) close() (err os.Error) {
 func (smpp *smpp) bind(cmd, rcmd SMPPCommand, params Params) (err os.Error) {
 	// Sequence number starts at 1
 	smpp.sequence ++
+	// PDU header
+	hdr := new(PDUHeader)
+	hdr.CmdLength = 23 // Min length
+	hdr.CmdId     = cmd
+	hdr.CmdStatus = STATUS_ESME_ROK
+	hdr.Sequence  = smpp.sequence
 	// Create bind PDU
 	pdu := new(PDUBind)
-	// PDU header
-	pdu.Header = new(PDUHeader)
-	pdu.Header.CmdLength = 23 // Min length
-	pdu.Header.CmdId     = cmd
-	pdu.Header.CmdStatus = STATUS_ESME_ROK
-	pdu.Header.Sequence  = smpp.sequence
 	// Mising params cause panic, this provides a clean error/exit
 	paramOK := false
 	defer func() {
@@ -73,13 +73,14 @@ func (smpp *smpp) bind(cmd, rcmd SMPPCommand, params Params) (err os.Error) {
 	pdu.AddrNpi      = params["addrNpi"].(SMPPNumericPlanIndicator)
 	pdu.AddressRange = params["addressRange"].(string)
 	// Add length of strings to pdu length
-	pdu.Header.CmdLength += uint32(len(pdu.SystemId))
-	pdu.Header.CmdLength += uint32(len(pdu.Password))
-	pdu.Header.CmdLength += uint32(len(pdu.SystemType))
-	pdu.Header.CmdLength += uint32(len(pdu.AddressRange))
+	hdr.CmdLength += uint32(len(pdu.SystemId))
+	hdr.CmdLength += uint32(len(pdu.Password))
+	hdr.CmdLength += uint32(len(pdu.SystemType))
+	hdr.CmdLength += uint32(len(pdu.AddressRange))
 	// Params were fine 'disable' the recover
 	paramOK = true
 	// Send PDU
+	pdu.setHeader(hdr)
 	err = pdu.write(smpp.writer)
 	if err != nil {
 		return
@@ -103,14 +104,15 @@ func (smpp *smpp) Unbind() (sequence uint32, err os.Error) {
 	}
 	// Increment sequence number
 	smpp.sequence ++
+	// PDU header
+	hdr := new(PDUHeader)
+	hdr.CmdLength = 16
+	hdr.CmdId     = CMD_UNBIND
+	hdr.CmdStatus = STATUS_ESME_ROK
+	hdr.Sequence  = smpp.sequence
 	// Create bind PDU
 	pdu := new(PDUUnbind)
-	// PDU header
-	pdu.Header = new(PDUHeader)
-	pdu.Header.CmdLength = 16
-	pdu.Header.CmdId     = CMD_UNBIND
-	pdu.Header.CmdStatus = STATUS_ESME_ROK
-	pdu.Header.Sequence  = smpp.sequence
+	pdu.setHeader(hdr)
 	// Send PDU
 	err = pdu.write(smpp.writer)
 	if err != nil {
