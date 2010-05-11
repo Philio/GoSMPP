@@ -13,12 +13,15 @@ import (
 // PDU interface which all PDU types should implement
 type PDU interface {
 	// Read the PDU from the buffer
-	read(r *bufio.Reader, hdr *PDUHeader) (err os.Error)
+	read(r *bufio.Reader) (err os.Error)
 	
 	// Write the PDU to the buffer
 	write(w *bufio.Writer) (err os.Error)
 	
-	// Get the PDU header
+	// Set the packet header
+	setHeader(hdr *PDUHeader)
+	
+	// Get the packet header
 	GetHeader() *PDUHeader
 	
 	// Get the struct
@@ -32,6 +35,11 @@ type PDUCommon struct {
 	OptionalLen	uint32
 }
 
+// Set header
+func (pdu *PDUCommon) setHeader(hdr *PDUHeader) {
+	pdu.Header = hdr
+}
+
 // Get header
 func (pdu *PDUCommon) GetHeader() *PDUHeader {
 	return pdu.Header
@@ -40,6 +48,36 @@ func (pdu *PDUCommon) GetHeader() *PDUHeader {
 // Get Struct
 func (pdu *PDUCommon) GetStruct() interface{} {
 	return *pdu
+}
+
+// Write Optional Params
+func (pdu *PDUCommon) writeOptional(){
+	if len(pdu.Optional) > 0 {
+		for key, val := range pdu.Optional {
+			op := new(pduOptParam)
+			op.tag = uint16(key)
+			op.value = val
+			v := reflect.NewValue(val)
+			switch t := v.(type) {
+				case *reflect.StringValue:
+					op.length = uint16(len(val.(string)))
+				case *reflect.BoolValue:
+					op.length = 1
+				case *reflect.Uint8Value:
+					op.length = 1
+				case *reflect.Uint16Value:
+					op.length = 2
+				case *reflect.Uint32Value:
+					op.length = 4
+				case *reflect.Uint64Value:
+					op.length = 8
+			}
+			err = op.write(w)
+			if err != nil {
+				return
+			}
+		}
+	}
 }
 
 // Bind PDU
@@ -55,9 +93,7 @@ type PDUBind struct {
 }
 
 // Read Bind PDU
-func (pdu *PDUBind) read(r *bufio.Reader, hdr *PDUHeader) (err os.Error) {
-	// Set Header
-	pdu.Header = hdr
+func (pdu *PDUBind) read(r *bufio.Reader) (err os.Error) {
 	// Read system id (null terminated string or null)
 	line, err := r.ReadBytes(0x00)
 	if err != nil {
@@ -127,7 +163,7 @@ func (pdu *PDUBind) write(w *bufio.Writer) (err os.Error) {
 		return
 	}
 	// Create byte array the size of the PDU
-	p := make([]byte, pdu.Header.CmdLength - 16)
+	p := make([]byte, pdu.Header.CmdLength - pdu.OptionalLen - 16)
 	pos := 0
 	// Copy system id
 	if len(pdu.SystemId) > 0 {
@@ -184,13 +220,10 @@ func (pdu *PDUBind) GetStruct() interface{} {
 type PDUBindResp struct {
 	PDUCommon
 	SystemId	string
-	Optional	OptParams
 }
 
 // Read Bind Response PDU
-func (pdu *PDUBindResp) read(r *bufio.Reader, hdr *PDUHeader) (err os.Error) {
-	// Set Header
-	pdu.Header = hdr
+func (pdu *PDUBindResp) read(r *bufio.Reader) (err os.Error) {
 	// Read system id (null terminated string or null)
 	line, err := r.ReadBytes(0x00)
 	if err != nil {
@@ -214,8 +247,35 @@ func (pdu *PDUBindResp) read(r *bufio.Reader, hdr *PDUHeader) (err os.Error) {
 }
 
 // Write Bind Response PDU
-// @todo complete this
 func (pdu *PDUBindResp) write(w *bufio.Writer) (err os.Error) {
+	// Write Header
+	err = pdu.Header.write(w)
+	if err != nil {
+		err = os.NewError("Bind Response: Error writing Header")
+		return
+	}
+	// Create byte array the size of the PDU
+	p := make([]byte, pdu.Header.CmdLength - pdu.OptionalLen - 16)
+	pos := 0
+	// Copy system id
+	if len(pdu.SystemId) > 0 {
+		copy(p[pos:len(pdu.SystemId)], []byte(pdu.SystemId))
+		pos += len(pdu.SystemId)
+	}
+	pos ++ // Null terminator
+	// Write to buffer
+	_, err = w.Write(p)
+	if err != nil {
+		err = os.NewError("Bind Response: Error writing to buffer")
+		return
+	}
+	// Flush write buffer
+	err = w.Flush()
+	if err != nil {
+		err = os.NewError("Bind Response: Error flushing write buffer")
+	}
+	// Optional params
+	pdu.writeOptional()
 	return
 }
 
@@ -230,9 +290,7 @@ type PDUUnbind struct {
 }
 
 // Read Unbind PDU
-func (pdu *PDUUnbind) read(r *bufio.Reader, hdr *PDUHeader) (err os.Error) {
-	// Set Header
-	pdu.Header = hdr
+func (pdu *PDUUnbind) read(r *bufio.Reader) (err os.Error) {
 	return
 }
 
@@ -257,9 +315,7 @@ type PDUUnbindResp struct {
 }
 
 // Read Unbind Response PDU
-func (pdu *PDUUnbindResp) read(r *bufio.Reader, hdr *PDUHeader) (err os.Error) {
-	// Set Header
-	pdu.Header = hdr
+func (pdu *PDUUnbindResp) read(r *bufio.Reader) (err os.Error) {
 	return
 }
 
@@ -275,9 +331,7 @@ func (pdu *PDUUnbindResp) write(w *bufio.Writer) (err os.Error) {
 
 // Get Struct
 func (pdu *PDUUnbindResp) GetStruct() interface{} {
-	v := reflect.NewValue(pdu)
-	p := v.(*reflect.PtrValue)
-	return p.Elem().Interface()
+	return *pdu
 }
 
 // Submit SM PDU
@@ -304,9 +358,7 @@ type PDUSubmitSM struct {
 }
 
 // Read SubmitSM PDU
-func (pdu *PDUSubmitSM) read(r *bufio.Reader, hdr *PDUHeader) (err os.Error) {
-	// Set Header
-	pdu.Header = hdr
+func (pdu *PDUSubmitSM) read(r *bufio.Reader) (err os.Error) {
 	return
 }
 
@@ -405,32 +457,7 @@ func (pdu *PDUSubmitSM) write(w *bufio.Writer) (err os.Error) {
 		return
 	}
 	// Optional params
-	if len(pdu.Optional) > 0 {
-		for key, val := range pdu.Optional {
-			op := new(pduOptParam)
-			op.tag = uint16(key)
-			op.value = val
-			v := reflect.NewValue(val)
-			switch t := v.(type) {
-				case *reflect.StringValue:
-					op.length = uint16(len(val.(string)))
-				case *reflect.BoolValue:
-					op.length = 1
-				case *reflect.Uint8Value:
-					op.length = 1
-				case *reflect.Uint16Value:
-					op.length = 2
-				case *reflect.Uint32Value:
-					op.length = 4
-				case *reflect.Uint64Value:
-					op.length = 8
-			}
-			err = op.write(w)
-			if err != nil {
-				return
-			}
-		}
-	}
+	pdu.writeOptional()
 	return
 }
 
@@ -446,9 +473,7 @@ type PDUSubmitSMResp struct {
 }
 
 // Read SubmitSM Response PDU
-func (pdu *PDUSubmitSMResp) read(r *bufio.Reader, hdr *PDUHeader) (err os.Error) {
-	// Set Header
-	pdu.Header = hdr
+func (pdu *PDUSubmitSMResp) read(r *bufio.Reader) (err os.Error) {
 	// Read message id (null terminated string or null)
 	line, err := r.ReadBytes(0x00)
 	if err != nil {

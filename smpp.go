@@ -168,7 +168,8 @@ func (smpp *smpp) GetResp(cmd SMPPCommand, sequence uint32) (rpdu PDU, err os.Er
 		// Bind responses
 		case CMD_BIND_RECEIVER_RESP, CMD_BIND_TRANSMITTER_RESP, CMD_BIND_TRANSCEIVER_RESP:
 			rpdu = new(PDUBindResp)
-			err = rpdu.read(smpp.reader, hdr)
+			rpdu.setHeader(hdr)
+			err = rpdu.read(smpp.reader)
 			if err != nil {
 				return nil, err
 			}
@@ -177,7 +178,8 @@ func (smpp *smpp) GetResp(cmd SMPPCommand, sequence uint32) (rpdu PDU, err os.Er
 		// Unbind response
 		case CMD_UNBIND_RESP:
 			rpdu = new(PDUUnbindResp)
-			err = rpdu.read(smpp.reader, hdr)
+			rpdu.setHeader(hdr)
+			err = rpdu.read(smpp.reader)
 			if err != nil {
 				return nil, err
 			}
@@ -187,7 +189,8 @@ func (smpp *smpp) GetResp(cmd SMPPCommand, sequence uint32) (rpdu PDU, err os.Er
 		// SubmitSM response
 		case CMD_SUBMIT_SM_RESP:
 			rpdu = new(PDUSubmitSMResp)
-			err = rpdu.read(smpp.reader, hdr)
+			rpdu.setHeader(hdr)
+			err = rpdu.read(smpp.reader)
 			if err != nil {
 				return nil, err
 			}
