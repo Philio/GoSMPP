@@ -375,7 +375,7 @@ func (pdu *PDUSubmitSM) write(w *bufio.Writer) (err os.Error) {
 		return
 	}
 	// Create byte array the size of the PDU
-	p := make([]byte, pdu.Header.CmdLength - 16 - pdu.OptionalLen)
+	p := make([]byte, pdu.Header.CmdLength - pdu.OptionalLen - 16)
 	pos := 0
 	// Copy service type
 	if len(pdu.ServiceType) > 0 {
@@ -504,6 +504,158 @@ func (pdu *PDUSubmitSMResp) write(r *bufio.Writer) (err os.Error) {
 
 // Get Struct
 func (pdu *PDUSubmitSMResp) GetStruct() interface{} {
+	return *pdu
+}
+
+// SubmitMulti PDU
+type PDUSubmitMulti struct {
+	PDUCommon
+	ServiceType	string
+	SourceAddrTon	SMPPTypeOfNumber
+	SourceAddrNpi	SMPPNumericPlanIndicator
+	SourceAddr	string
+	NumOfDests	uint8
+	DestAddrTon	SMPPTypeOfNumber
+	DestAddrNpi	SMPPNumericPlanIndicator
+	DestAddrs	[]string
+	DestLists	[]string
+	EsmClass	SMPPEsmClassESME
+	ProtocolId	uint8
+	PriorityFlag	SMPPPriority
+	SchedDelTime	string
+	ValidityPeriod	string
+	RegDelivery	SMPPDelivery
+	ReplaceFlag	uint8
+	DataCoding	SMPPDataCoding
+	SmDefaultMsgId	uint8
+	SmLength	uint8
+	ShortMessage	string
+}
+
+// Read SubmitMulti PDU
+func (pdu *PDUSubmitMulti) read(r *bufio.Reader) (err os.Error) {
+	return
+}
+
+// Write SubmitMulti PDU
+func (pdu *PDUSubmitMulti) write(w *bufio.Writer) (err os.Error) {
+	// Write Header
+	err = pdu.Header.write(w)
+	if err != nil {
+		err = os.NewError("SubmitMulti: Error writing Header")
+		return
+	}
+	// Create byte array the size of the PDU
+	p := make([]byte, pdu.Header.CmdLength - pdu.OptionalLen - 16)
+	pos := 0
+	// Copy service type
+	if len(pdu.ServiceType) > 0 {
+		copy(p[pos:len(pdu.ServiceType)], []byte(pdu.ServiceType))
+		pos += len(pdu.ServiceType)
+	}
+	pos ++ // Null terminator
+	// Source TON
+	p[pos] = byte(pdu.SourceAddrTon)
+	pos ++
+	// Source NPI
+	p[pos] = byte(pdu.SourceAddrNpi)
+	pos ++
+	// Source Address
+	if len(pdu.SourceAddr) > 0 {
+		copy(p[pos:pos + len(pdu.SourceAddr)], []byte(pdu.SourceAddr))
+		pos += len(pdu.SourceAddr)
+	}
+	pos ++ // Null terminator
+	// Number of destinations
+	p[pos] = byte(pdu.NumOfDests)
+	pos ++
+	// Send destination numbers
+	for _, destNum := range pdu.DestAddrs {
+		// Number indicator
+		p[pos] = byte(0x01)
+		pos ++
+		// Destination TON
+		p[pos] = byte(pdu.DestAddrTon)
+		pos ++
+		// Destination NPI
+		p[pos] = byte(pdu.DestAddrNpi)
+		pos ++
+		// Copy number
+		copy(p[pos:pos + len(destNum)], []byte(destNum))
+		pos += len(destNum) + 1
+	}
+	// Send destination lists
+	for _, destList := range pdu.DestLists {
+		// List indicator
+		p[pos] = byte(0x02)
+		pos ++
+		// Copy list name
+		copy(p[pos:pos + len(destList)], []byte(destList))
+		pos += len(destList) + 1
+	}
+	// ESM Class
+	p[pos] = byte(pdu.EsmClass)
+	pos ++
+	// Protocol Id
+	p[pos] = byte(pdu.ProtocolId)
+	pos ++
+	// Priority Flag
+	p[pos] = byte(pdu.PriorityFlag)
+	pos ++
+	// Sheduled Delivery Time
+	if len(pdu.SchedDelTime) > 0 {
+		copy(p[pos:pos + len(pdu.SchedDelTime)], []byte(pdu.SchedDelTime))
+		pos += len(pdu.SchedDelTime)
+	}
+	pos ++ // Null terminator
+	// Validity Period
+	if len(pdu.ValidityPeriod) > 0 {
+		copy(p[pos:pos + len(pdu.ValidityPeriod)], []byte(pdu.ValidityPeriod))
+		pos += len(pdu.ValidityPeriod)
+	}
+	pos ++ // Null terminator
+	// Registered Delivery
+	p[pos] = byte(pdu.RegDelivery)
+	pos ++
+	// Replace Flag
+	p[pos] = byte(pdu.ReplaceFlag)
+	pos ++
+	// Data Coding
+	p[pos] = byte(pdu.DataCoding)
+	pos ++
+	// Default Msg Id
+	p[pos] = byte(pdu.SmDefaultMsgId)
+	pos ++
+	// Msg Length
+	p[pos] = byte(pdu.SmLength)
+	pos ++
+	// Message
+	if len(pdu.ShortMessage) > 0 {
+		copy(p[pos:pos + len(pdu.ShortMessage)], []byte(pdu.ShortMessage))
+		pos += len(pdu.ShortMessage)
+	}
+	// Write to buffer
+	_, err = w.Write(p)
+	if err != nil {
+		err = os.NewError("SubmitMulti: Error writing to buffer")
+		return
+	}
+	// Flush write buffer
+	err = w.Flush()
+	if err != nil {
+		err = os.NewError("SubmitMulti: Error flushing write buffer")
+		return
+	}
+	// Optional params
+	err = pdu.writeOptional(w)
+	if err != nil {
+		err = os.NewError("SubmitMulti: Error writing optional params")
+	}
+	return
+}
+
+// Get Struct
+func (pdu *PDUSubmitMulti) GetStruct() interface{} {
 	return *pdu
 }
 
