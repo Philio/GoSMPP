@@ -10,6 +10,7 @@ import (
 	"net"
 	"bufio"
 	"strconv"
+	"fmt"
 )
 
 // Used for all outbound connections
@@ -132,6 +133,7 @@ func (smpp *smpp) GetResp(cmd SMPPCommand, sequence uint32) (rpdu PDU, err os.Er
 	// Read the header
 	hdr := new(PDUHeader)
 	err = hdr.read(smpp.reader)
+	fmt.Printf("Header: %#v\n", hdr)
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +193,14 @@ func (smpp *smpp) GetResp(cmd SMPPCommand, sequence uint32) (rpdu PDU, err os.Er
 		// SubmitSM response
 		case CMD_SUBMIT_SM_RESP:
 			rpdu = new(PDUSubmitSMResp)
+			rpdu.setHeader(hdr)
+			err = rpdu.read(smpp.reader)
+			if err != nil {
+				return nil, err
+			}
+		// SubmitMulti response
+		case CMD_SUBMIT_MULTI_RESP:
+			rpdu = new(PDUSubmitMultiResp)
 			rpdu.setHeader(hdr)
 			err = rpdu.read(smpp.reader)
 			if err != nil {

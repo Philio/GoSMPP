@@ -8,6 +8,7 @@ import (
 	"os"
 	"bufio"
 	"reflect"
+	"fmt"
 )
 
 // PDU interface which all PDU types should implement
@@ -490,10 +491,6 @@ func (pdu *PDUSubmitSMResp) read(r *bufio.Reader) (err os.Error) {
 	if len(line) > 1 {
 		pdu.MessageId = string(line[0:len(line) - 1])
 	}
-	// Check entire packet read
-	if pdu.Header.CmdLength > uint32(len(line)) + 16 {
-		err = os.NewError("SubmitSM Response: Unknown data at end of PDU")
-	}
 	return
 }
 
@@ -651,11 +648,82 @@ func (pdu *PDUSubmitMulti) write(w *bufio.Writer) (err os.Error) {
 	if err != nil {
 		err = os.NewError("SubmitMulti: Error writing optional params")
 	}
+	fmt.Printf("SubmitMulti Header: %#v\n", pdu.Header)
+	fmt.Printf("SubmitMulti p: %#v\nLength p: %d\n", p, len(p))
 	return
 }
 
 // Get Struct
 func (pdu *PDUSubmitMulti) GetStruct() interface{} {
+	return *pdu
+}
+
+// SubmitMulti Response PDU
+type PDUSubmitMultiResp struct {
+	PDUCommon
+	MessageId	string
+	NumUnsuccess	uint8
+	Unsuccess	[]string
+	ErrorCodes	[]uint32
+}
+
+// Read SubmitMulti Response PDU
+func (pdu *PDUSubmitMultiResp) read(r *bufio.Reader) (err os.Error) {
+	// Read message id (null terminated string or null)
+	line, err := r.ReadBytes(0x00)
+	if err != nil {
+		err = os.NewError("SubmitMulti Response: Error reading message id")
+		return
+	}
+	if len(line) > 1 {
+		pdu.MessageId = string(line[0:len(line) - 1])
+	}
+	// Read unsuccessful destinations
+	c, err := r.ReadByte()
+	if err != nil {
+		err = os.NewError("SubmitMulti Response: Error reading number of unsuccessful destinations")
+		return
+	}
+	pdu.NumUnsuccess = uint8(c)
+	// Read Unsuccessful destination numbers
+	pdu.Unsuccess = make([]string, pdu.NumUnsuccess)
+	pdu.ErrorCodes = make([]uint32, pdu.NumUnsuccess)
+	for i := uint8(0); i < pdu.NumUnsuccess; i ++ {
+		// Discard Ton/Npi
+		p := make([]byte, 2)
+		_, err = r.Read(p)
+		if err != nil {
+			err = os.NewError("SubmitMulti Response: Error reading TON/NPI")
+			return
+		}
+		// Read Destination
+		line, err = r.ReadBytes(0x00)
+		if err != nil {
+			err = os.NewError("SubmitMulti Response: Error reading destination")
+			return
+		}
+		if len(line) > 1 {
+			pdu.Unsuccess[i] = string(line[0:len(line) - 1])
+		}
+		// Read Error code
+		p = make([]byte, 4)
+		_, err = r.Read(p)
+		if err != nil {
+			err = os.NewError("SubmitMulti Response: Error reading error code")
+			return
+		}
+		pdu.ErrorCodes[i] = uint32(unpackUint(p))
+	}
+	return
+}
+
+// Write SubmitMulti Response PDU
+func (pdu *PDUSubmitMultiResp) write(r *bufio.Writer) (err os.Error) {
+	return
+}
+
+// Get Struct
+func (pdu *PDUSubmitMultiResp) GetStruct() interface{} {
 	return *pdu
 }
 

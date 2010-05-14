@@ -7,6 +7,7 @@ package smpp
 import (
 	"os"
 	"reflect"
+	"fmt"
 )
 
 // Transmitter type
@@ -122,7 +123,7 @@ func (tx *Transmitter) SubmitSM(dest, msg string, params Params, optional ...Opt
 }
 
 // Submit Multi
-func (tx *Transmitter) SubmitMulti(destNum, destList []string, msg string, params Params, optional ...OptParams) (sequence uint32, unsuccess []string, err os.Error) {
+func (tx *Transmitter) SubmitMulti(destNum, destList []string, msg string, params Params, optional ...OptParams) (sequence uint32, msgId string, unsuccess []string, err os.Error) {
 	// Check connected and bound
 	if !tx.connected || !tx.bound {
 		err = os.NewError("SubmitMulti: A bound connection is required to submit a message")
@@ -231,7 +232,14 @@ func (tx *Transmitter) SubmitMulti(destNum, destList []string, msg string, param
 	if tx.async {
 		sequence = tx.sequence
 	} else {
-		
+		rpdu, err := tx.GetResp(CMD_SUBMIT_MULTI_RESP, tx.sequence)
+		if err != nil {
+		fmt.Printf("Result: %#v, %#v\n", rpdu, err)
+			return 
+		}
+		s := rpdu.GetStruct()
+		msgId     = s.(PDUSubmitMultiResp).MessageId
+		unsuccess = s.(PDUSubmitMultiResp).Unsuccess
 	}
 	return
 }
